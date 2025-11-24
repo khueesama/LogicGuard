@@ -4,19 +4,57 @@ promptStore.py
 Chứa các prompt dùng cho:
 - Undefined Terms (EN-only endpoint)
 - Unsupported Claims (EN-only endpoint)
-- Unified Analysis EN (4 + 1 subtasks: contradictions, undefined terms, unsupported claims,
-  logical jumps, spelling errors)
+- Unified Analysis EN (5 subtasks: spelling, unsupported claims,
+  undefined terms, contradictions, logical jumps)
 - Unified Analysis VI (5 subtasks tương tự, tiếng Việt)
 
-Lưu ý quan trọng:
-- Các prompt unified (prompt_analysis, prompt_analysis_vi) có thêm block "spelling_errors"
-  trong JSON ví dụ. Nếu bạn muốn Gemini trả ra đúng block này và vẫn dùng
-  GenerationConfig(response_schema=...), bạn cần:
-    1) Thêm trường "spelling_errors" vào RESPONSE_SCHEMA trong Analysis.py
-    2) Hoặc bỏ response_schema, chỉ dùng response_mime_type="application/json"
-- Nếu hiện tại schema của bạn CHƯA có "spelling_errors", Gemini sẽ cố gắng bám theo schema,
-  và có thể bỏ qua phần đó trong prompt. Khi đó bạn vẫn có thể dùng rule-based spelling
-  từ term_normalizer.py thông qua metadata.spelling_errors như bạn đã làm.
+Mục tiêu thiết kế (theo A2):
+
+1️⃣ Tối ưu ĐỘ CHÍNH XÁC + TỐC ĐỘ:
+   - Prompt không quá ngắn (dễ mơ hồ) cũng không quá dài (gây quá tải).
+   - Số dòng ~vừa phải để Gemini hiểu rõ nhiệm vụ, không bị "tê liệt" vì prompt khổng lồ.
+
+2️⃣ THỨ TỰ ƯU TIÊN 5 LỖI (tối ưu nhất về tốc độ + độ chính xác):
+   1) Spelling Errors (EN + VI) – Ưu tiên số 1
+   2) Unsupported Claims
+   3) Undefined Terms
+   4) Contradictions
+   5) Logical Jumps
+
+   → Trong unified prompt, luôn yêu cầu LLM:
+     - Đọc & đánh dấu spelling trước.
+     - Sau đó mới phân tích unsupported claims → undefined terms → contradictions → logical jumps.
+
+3️⃣ KHÔNG DẠY CÁCH SỬA TỪNG BƯỚC
+   - Không yêu cầu LLM đưa ra checklist / hướng dẫn chi tiết.
+   - Chỉ cần trả JSON với:
+        - spelling_errors: original, suggested (đáp án trực tiếp), reason ngắn.
+        - unsupported_claims, undefined_terms, contradictions, logical_jumps: nêu lỗi + gợi ý ngắn, không "tutorial".
+
+4️⃣ KHÔNG GỢI Ý CHUNG CHUNG, TRẢ VỀ “ĐÁP ÁN”
+   - Spelling: luôn điền vào "suggested" dạng từ/cụm từ cuối cùng nên dùng.
+   - Không yêu cầu giải thích kiểu “bạn nên làm A, B, C từng bước…”, chỉ nêu ngắn gọn lý do.
+
+5️⃣ MIXED EN + VI
+   - Spelling phải hiểu ngữ cảnh song ngữ, tránh nhầm:
+       + typo → undefined_term
+       + tên riêng / brand → spelling_errors
+   - Undefined terms:
+       + KHÔNG bắt những typo đã được gắn cờ trong spelling_errors.
+       + KHÔNG bắt các từ tiếng Anh phổ thông xen trong câu tiếng Việt (nếu nghĩa quá rõ).
+
+6️⃣ JSON OUTPUT
+   - Unified prompt EN/VI phải trả đúng schema:
+        {
+          "analysis_metadata": {...},
+          "contradictions": {...},
+          "undefined_terms": {...},
+          "unsupported_claims": {...},
+          "logical_jumps": {...},
+          "spelling_errors": {...},
+          "summary": {...}
+        }
+   - Mọi trường total_found phải khớp với số lượng items.
 """
 
 from typing import Dict, Any
@@ -29,14 +67,14 @@ from typing import Dict, Any
 def prompt_undefined_terms(context: Dict[str, Any], content: str) -> str:
     """
     Prompt phân tích THUẬT NGỮ CHƯA ĐỊNH NGHĨA (Undefined Terms) – tiếng Anh.
-    Dùng riêng khi bạn muốn gọi API chỉ cho undefined terms.
+    Dùng riêng khi muốn gọi API chỉ cho undefined terms.
 
-    Lưu ý đặc biệt:
-    - KHÔNG được coi các lỗi chính tả hiển nhiên (deeplearnnig, algoritm, platfomr, tạoo, ...)
-      là "thuật ngữ". Nếu bạn nghi ngờ đó chỉ là typo, hãy BỎ QUA, KHÔNG đưa vào undefined_terms.
-    - Chỉ coi là undefined term nếu nó có vẻ là:
-      + tên mô hình, tên hệ thống, tên sản phẩm, tên module
-      + khái niệm kỹ thuật, từ viết tắt, thuật ngữ domain-specific
+    Lưu ý:
+    - Không đánh spelling ở đây (spelling đã làm ở chỗ khác).
+    - KHÔNG coi lỗi chính tả / typo là undefined_terms.
+    - Tập trung vào:
+        + Tên mô hình, hệ thống, sản phẩm, module.
+        + Từ viết tắt, acronym, metric lạ, khái niệm domain-specific.
     """
 
     writing_type = context.get("writing_type", "Document")
@@ -44,102 +82,103 @@ def prompt_undefined_terms(context: Dict[str, Any], content: str) -> str:
     criteria = context.get("criteria", [])
     constraints = context.get("constraints", [])
 
-    context_lines = []
-    context_lines.append(f"Writing Type: {writing_type}")
+    ctx_lines = [f"Writing Type: {writing_type}"]
     if main_goal:
-        context_lines.append(f"Main Goal: {main_goal}")
+        ctx_lines.append(f"Main Goal: {main_goal}")
     if criteria:
-        formatted_criteria = "\n".join(f"  - {item}" for item in criteria)
-        context_lines.append(f"Criteria:\n{formatted_criteria}")
+        ctx_lines.append("Criteria:")
+        ctx_lines.extend(f"  - {c}" for c in criteria)
     if constraints:
-        formatted_constraints = "\n".join(f"  - {item}" for item in constraints)
-        context_lines.append(f"Constraints:\n{formatted_constraints}")
+        ctx_lines.append("Constraints:")
+        ctx_lines.extend(f"  - {c}" for c in constraints)
+    ctx_block = "\n".join(ctx_lines)
 
-    context_block = "\n".join(context_lines)
+    prompt = f"""
+You are LogicGuard, an expert technical writing analyst specialized in identifying undefined terminology in {writing_type} documents.
 
-    prompt = f"""You are LogicGuard, an expert technical writing analyst specialized in identifying undefined terminology in {writing_type} documents.
+Your single task in this endpoint:
+- Detect technical terms, metrics, acronyms, product names, system names, or domain-specific concepts
+  that are important for understanding the document BUT are NOT clearly defined when they first appear.
 
-### Task Overview
-Your task is to identify all technical terms, specialized concepts, acronyms, and domain-specific vocabulary that appear in the document WITHOUT proper definition or explanation at their first occurrence.
+DO NOT perform spelling analysis here. Spelling is handled elsewhere.
 
-You MUST NOT treat obvious spelling mistakes as technical terms.
-Examples of spelling mistakes that should NOT be returned as undefined terms:
-- "deeplearnnig" instead of "deep learning"
-- "algoritm" instead of "algorithm"
-- "databaes" instead of "database"
-- "platfomr" instead of "platform"
-- "tạoo" instead of "tạo"
+---------------------------
+CONTEXT
+{ctx_block}
 
-If a word clearly looks like a typo for a common word, IGNORE it here and do NOT include it in undefined_terms.
-
-### Context Information
-{context_block}
-
-### Document Content
+---------------------------
+DOCUMENT CONTENT
 <<<BEGIN DOCUMENT>>>
 {content}
 <<<END DOCUMENT>>>
 
-### Definition Patterns to Look For
-When checking if a term is defined, look for these patterns at or near the first occurrence:
-- "X is..."
-- "X is defined as..."
-- "X means..."
-- "X (short for ...)"
-- "X, also known as..."
-- Parenthetical explanations immediately after the term
-- Contextual clues that make the meaning clear to a general audience
+---------------------------
+DEFINITION & SCOPE
 
-### Instructions
-1. Read through the entire document and identify ALL specialized terms, technical concepts, acronyms, and domain-specific vocabulary.
-2. For each term found:
-   - Locate its FIRST occurrence in the document.
-   - Check if there is a definition or explanation at or near that occurrence.
-   - Note the paragraph or section where it first appears.
-3. Flag terms that are NOT adequately defined for a general reader.
-4. Consider the document type: {writing_type} - some terms may be assumed knowledge for the expected audience.
-5. DO NOT include plain spelling errors as undefined terms.
+Treat something as a candidate technical term ONLY IF:
+- It looks like: model name, framework/module name, product/system name, domain-specific metric,
+  technical acronym, or specialized concept.
+- It is important for understanding the main arguments, results, or architecture.
 
-### Output Format
-Return ONLY valid JSON in this exact structure:
+A term is considered CLEARLY DEFINED if:
+- The text explicitly defines it near first occurrence:
+    - "X is...", "X is defined as...", "X means..."
+    - "X (short for ...)", "X, also known as ..."
+    - Parenthetical explanation right after the term.
+- OR the meaning is obviously clear for the expected expert audience (e.g., "CPU", "RAM" in a CS paper).
+
+IMPORTANT: DO NOT mark plain typos or obvious misspellings as undefined terms.
+Examples that should NOT be returned as undefined_terms:
+- "deeplearnnig" instead of "deep learning"
+- "algoritm" instead of "algorithm"
+- "databaes" instead of "database"
+- "platfomr" instead of "platform"
+If a token clearly looks like a spelling mistake for a common English word, IGNORE it here.
+
+---------------------------
+MIXED-LANGUAGE HANDLING
+
+If the document contains Vietnamese + English mixed:
+- Do NOT mark common English words like "system", "model", "accuracy", "dataset" as undefined terms
+  when they are used in a natural way.
+- Only mark as undefined term if:
+    - It is a special metric, method, or name that the reader cannot guess from context, AND
+    - It is not a simple translation of a normal word.
+
+---------------------------
+OUTPUT FORMAT
+
+Return ONLY valid JSON with this structure:
+
 {{
-    "total_terms_found": <number>,
-    "undefined_terms": [
-        {{
-            "term": "gradient clipping",
-            "first_appeared": "Paragraph 3",
-            "context_snippet": "Short excerpt showing where the term appears",
-            "is_defined": false,
-            "reason": "Term appears without explanation or definition pattern"
-        }},
-        {{
-            "term": "NoSQL",
-            "first_appeared": "Paragraph 1",
-            "context_snippet": "NoSQL databases provide better scalability...",
-            "is_defined": false,
-            "reason": "Acronym used without expansion or explanation"
-        }}
-    ],
-    "defined_terms": [
-        {{
-            "term": "scalability",
-            "first_appeared": "Paragraph 2",
-            "context_snippet": "scalability, which is the ability to handle...",
-            "is_defined": true,
-            "definition_found": "which is the ability to handle increasing workloads"
-        }}
-    ]
+  "total_terms_found": <int>,
+  "undefined_terms": [
+    {{
+      "term": "Quantum Efficiency Score",
+      "first_appeared": "Paragraph 2, Sentence 1",
+      "context_snippet": "Short excerpt showing where the term appears...",
+      "is_defined": false,
+      "reason": "Metric is used as a key result but never explained or defined.",
+      "suggestion": "Add a short definition the first time this score is mentioned."
+    }}
+  ],
+  "defined_terms": [
+    {{
+      "term": "gradient clipping",
+      "first_appeared": "Paragraph 3, Sentence 2",
+      "context_snippet": "We apply gradient clipping, which means limiting the gradient norm...",
+      "is_defined": true,
+      "definition_found": "limiting the gradient norm to stabilize training."
+    }}
+  ]
 }}
 
-### Important Notes
-- Include BOTH undefined_terms and defined_terms for transparency.
-- Be thorough but avoid false positives (common terms don't need definition).
-- Consider the intended audience's expected knowledge level.
-- Focus on domain-specific terminology that requires clarification.
-- Paragraph numbers should match the logical structure of the document.
-- DO NOT include obvious spelling mistakes in undefined_terms.
+Rules:
+- total_terms_found = len(undefined_terms) + len(defined_terms)
+- Always include both undefined_terms and defined_terms (can be empty lists).
+- All strings must be plain text, no markdown.
 
-Return ONLY the JSON output. Do not include any markdown code blocks, commentary, or explanations outside the JSON structure.
+Return ONLY the JSON object. No markdown, no extra commentary.
 """
     return prompt
 
@@ -152,6 +191,10 @@ def prompt_unsupported_claims(context: Dict[str, Any], content: str) -> str:
     """
     Prompt phân tích LUẬN ĐIỂM THIẾU CHỨNG CỨ (Unsupported Claims) – tiếng Anh.
     Dùng riêng khi muốn gọi API chỉ cho unsupported claims.
+
+    Focus:
+    - Tìm câu khẳng định (claims) thiếu data / example / citation / reasoning.
+    - Không đánh spelling, không bắt undefined term ở đây.
     """
 
     writing_type = context.get("writing_type", "Document")
@@ -159,131 +202,115 @@ def prompt_unsupported_claims(context: Dict[str, Any], content: str) -> str:
     criteria = context.get("criteria", [])
     constraints = context.get("constraints", [])
 
-    context_lines = []
-    context_lines.append(f"Writing Type: {writing_type}")
+    ctx_lines = [f"Writing Type: {writing_type}"]
     if main_goal:
-        context_lines.append(f"Main Goal: {main_goal}")
+        ctx_lines.append(f"Main Goal: {main_goal}")
     if criteria:
-        formatted_criteria = "\n".join(f"  - {item}" for item in criteria)
-        context_lines.append(f"Criteria:\n{formatted_criteria}")
+        ctx_lines.append("Criteria:")
+        ctx_lines.extend(f"  - {c}" for c in criteria)
     if constraints:
-        formatted_constraints = "\n".join(f"  - {item}" for item in constraints)
-        context_lines.append(f"Constraints:\n{formatted_constraints}")
+        ctx_lines.append("Constraints:")
+        ctx_lines.extend(f"  - {c}" for c in constraints)
+    ctx_block = "\n".join(ctx_lines)
 
-    context_block = "\n".join(context_lines)
+    prompt = f"""
+You are LogicGuard, an expert writing analyst specialized in identifying unsupported claims in {writing_type} documents.
 
-    prompt = f"""You are LogicGuard, an expert writing analyst specialized in identifying unsupported claims in {writing_type} documents.
+Your single task in this endpoint:
+- Detect claims / statements that require evidence but are NOT properly supported in the text.
 
-### Task Overview
-Your task is to identify claims, assertions, or statements that lack adequate supporting evidence such as data, examples, citations, or logical reasoning.
+Do NOT do spelling or undefined term detection here.
 
-### Context Information
-{context_block}
+---------------------------
+CONTEXT
+{ctx_block}
 
-### Document Content
+---------------------------
+DOCUMENT CONTENT
 <<<BEGIN DOCUMENT>>>
 {content}
 <<<END DOCUMENT>>>
 
-### What Constitutes a Claim
-A claim is a statement that:
-- Makes an assertion about facts, trends, or relationships.
-- Presents an opinion as if it were fact.
-- Makes predictions or generalizations.
-- States cause-and-effect relationships.
-- Compares or evaluates things.
+---------------------------
+WHAT IS A CLAIM?
 
-### What Constitutes Evidence
-Evidence includes:
-- Data/Statistics: Numbers, percentages, measurements, research findings.
-- Examples: Specific instances, case studies, real-world scenarios.
-- Citations: References to studies, experts, publications, or authoritative sources.
-- Logical reasoning: Step-by-step explanations that build on established facts.
-- Quotations: Direct statements from credible sources.
-- Visual data: Graphs, charts, tables (when mentioned).
+Treat a sentence (or clause) as a claim if it:
+- Asserts something about facts, trends, comparisons, predictions, or causal relations.
+- Example types:
+    - Absolute statements: "X always works", "No one fails with this method".
+    - Comparative: "X is faster than Y".
+    - Causal: "X causes Y", "Using our system will double revenue".
+    - Quantitative: "97% of users prefer this tool".
 
-### Evidence Proximity Rule
-A claim is considered "supported" if evidence appears:
-- In the same sentence,
-- Within ±2 sentences (before or after the claim),
-- Or in the same paragraph with clear connection to the claim.
+WHAT COUNTS AS EVIDENCE?
 
-### Instructions
-1. Read through the document sentence by sentence.
-2. Identify all claims (assertive statements that require support).
-3. For each claim:
-   - Check if there is supporting evidence within ±2 sentences.
-   - Evaluate if the evidence is sufficient and relevant.
-   - Classify as "supported", "weakly_supported", or "unsupported".
-4. For unsupported or weakly supported claims, provide specific suggestions for improvement.
+A claim is considered supported ONLY IF the document provides nearby:
+- Data or statistics.
+- Concrete examples or case studies.
+- Citations to credible sources.
+- Clear logical reasoning that links prior facts to the claim.
 
-### Output Format
-Return ONLY valid JSON in this exact structure:
+We use an "evidence proximity rule":
+- Evidence must appear in:
+    - the same sentence, OR
+    - within ±2 sentences around the claim, OR
+    - clearly in the same paragraph with explicit connection.
+
+---------------------------
+OUTPUT FORMAT
+
+Return ONLY valid JSON with this structure:
+
 {{
-    "total_claims_found": <number>,
-    "unsupported_claims": [
-        {{
-            "claim": "AI can perfectly predict human emotions.",
-            "location": "Paragraph 2, Sentence 3",
-            "status": "unsupported",
-            "reason": "No data, research, or examples provided to support this absolute claim",
-            "surrounding_context": "Brief excerpt showing the claim in context...",
-            "suggestion": "Add source, data, or example to support this claim. Consider: cite research studies, provide statistical evidence, or qualify the statement."
-        }},
-        {{
-            "claim": "NoSQL databases are always faster than SQL databases.",
-            "location": "Paragraph 3, Sentence 1",
-            "status": "unsupported",
-            "reason": "Absolute claim with no comparative data or benchmarks provided",
-            "surrounding_context": "NoSQL databases are always faster than SQL databases. They scale better too...",
-            "suggestion": "Provide benchmark data, specify use cases, or cite performance studies. Avoid absolute terms without evidence."
-        }}
-    ],
-    "supported_claims": [
-        {{
-            "claim": "According to Smith (2023), machine learning models achieve 85% accuracy.",
-            "location": "Paragraph 1, Sentence 2",
-            "status": "supported",
-            "evidence_type": "citation with data",
-            "evidence": "References Smith (2023) and provides specific accuracy metric"
-        }},
-        {{
-            "claim": "The system reduced processing time by 40%.",
-            "location": "Paragraph 4, Sentence 5",
-            "status": "supported",
-            "evidence_type": "data/measurement",
-            "evidence": "Specific quantifiable metric provided"
-        }}
-    ]
+  "total_claims_found": <int>,
+  "unsupported_claims": [
+    {{
+      "claim": "97% of all professionals worldwide prefer this software.",
+      "location": "Paragraph 2, Sentence 1",
+      "status": "unsupported",  // or "weak" or "partially_supported"
+      "claim_type": "absolute", // "absolute" | "comparative" | "causal" | "predictive" | ...
+      "reason": "High, precise percentage is given without any data, citation, or reference.",
+      "surrounding_context": "Short excerpt around the claim...",
+      "suggestion": "Either provide concrete survey or market research data, or rewrite the sentence to be less absolute."
+    }}
+  ],
+  "supported_claims": [
+    {{
+      "claim": "According to Smith (2023), the model achieves 85% accuracy.",
+      "location": "Paragraph 1, Sentence 2",
+      "status": "supported",
+      "evidence_type": "citation_with_data",
+      "evidence": "Cites a specific source and provides a clear numeric result."
+    }}
+  ]
 }}
 
-### Important Guidelines
-- Be strict but fair: claims need evidence, but obvious facts don't.
-- Consider the writing type: {writing_type} may have different evidence standards.
-- Watch for weasel words: "probably", "might", "could" don't magically make a claim acceptable.
-- Absolute statements: "always", "never", "all", "none" require strong evidence.
-- Comparative claims: "better", "faster", "more efficient" need comparative data.
-- Causal claims: "causes", "leads to", "results in" need logical or empirical support.
-- Common knowledge: well-established facts don't always need citations.
-
-Return ONLY the JSON output. Do not include any markdown code blocks, commentary, or explanations outside the JSON structure.
+Rules:
+- total_claims_found = len(unsupported_claims) + len(supported_claims)
+- "suggestion" should be short and direct (no long tutorial).
+- Return ONLY the JSON object, no markdown, no extra text.
 """
     return prompt
 
 
 # =======================================
-# 3. UNIFIED ANALYSIS – ENGLISH
+# 3. UNIFIED ANALYSIS – ENGLISH (A2)
 # =======================================
 
 def prompt_analysis(context: Dict[str, Any], content: str) -> str:
     """
-    Unified English prompt:
-    - Runs 5 subtasks in one call:
-      1) Contradictions
-      2) Undefined Terms
-      3) Unsupported Claims
-      4) Logical Jumps
-      5) Spelling Errors (EN + VI within the document)
+    Unified English prompt (A2):
+    - Runs 5 subtasks in one call, với thứ tự ưu tiên:
+      1) Spelling Errors (EN + VI, trong văn bản)
+      2) Unsupported Claims
+      3) Undefined Terms
+      4) Contradictions
+      5) Logical Jumps
+
+    Mục tiêu:
+    - Ưu tiên phát hiện spelling chính xác và nhanh.
+    - Sau đó lần lượt xử lý các lỗi logic khác.
+    - Trả về JSON A2 (final answers, không hướng dẫn từng bước).
     """
 
     writing_type = context.get("writing_type", "Document")
@@ -291,293 +318,317 @@ def prompt_analysis(context: Dict[str, Any], content: str) -> str:
     criteria = context.get("criteria", [])
     constraints = context.get("constraints", [])
 
-    context_lines = []
-    context_lines.append(f"Writing Type: {writing_type}")
+    ctx_lines = [f"Writing Type: {writing_type}"]
     if main_goal:
-        context_lines.append(f"Main Goal: {main_goal}")
+        ctx_lines.append(f"Main Goal: {main_goal}")
     if criteria:
-        context_lines.append("Criteria:")
-        for c in criteria:
-            context_lines.append(f"  - {c}")
+        ctx_lines.append("Criteria:")
+        ctx_lines.extend(f"  - {c}" for c in criteria)
     if constraints:
-        context_lines.append("Constraints:")
-        for r in constraints:
-            context_lines.append(f"  - {r}")
-    context_block = "\n".join(context_lines)
+        ctx_lines.append("Constraints:")
+        ctx_lines.extend(f"  - {c}" for c in constraints)
+    ctx_block = "\n".join(ctx_lines)
 
     prompt = f"""
 You are LogicGuard, an AI assistant specialized in logical and structural analysis of {writing_type} documents.
 
-Your mission: analyse the document along 5 dimensions:
-1) Contradictions
-2) Undefined Terms
-3) Unsupported Claims
-4) Logical Jumps
-5) Spelling Errors (English + Vietnamese)
+You MUST analyze the document along 5 dimensions, in this PRIORITY ORDER:
+1) Spelling Errors (English + Vietnamese)
+2) Unsupported Claims
+3) Undefined Terms
+4) Contradictions
+5) Logical Jumps
 
 You receive:
 - CONTEXT: high-level info about the writing task.
-- CONTENT: the full original document as a plain string.
+- CONTENT: the full original document string (possibly mixed EN + VI).
 
-IMPORTANT GLOBAL RULES:
-- You MUST return ONLY ONE JSON object.
+GLOBAL JSON RULES:
+- Return EXACTLY ONE JSON object.
 - The JSON MUST be valid (no trailing commas, no comments).
-- Do NOT wrap the JSON in markdown (no ```).
-- Do NOT output any explanation text outside of the JSON.
-- ALL positions (start_pos, end_pos) for spelling errors are 0-based character indices
-  on the ORIGINAL CONTENT string exactly as given in the DOCUMENT block.
-- end_pos is exclusive (same convention as Python slicing: content[start_pos:end_pos]).
-- Do NOT treat brand names or clearly intentional product/model names as spelling errors
-  (e.g., "iPhone", "YouTube", "Z-Trax", "NeuroLearn-X", etc.).
+- Do NOT wrap JSON in markdown fences.
+- Do NOT output any explanation text outside the JSON.
+- Every section must be present:
+    - analysis_metadata
+    - contradictions
+    - undefined_terms
+    - unsupported_claims
+    - logical_jumps
+    - spelling_errors
+    - summary
+- If no issues in a section, set total_found = 0 and items = [].
 
-------------------------------------------
-### CONTEXT
-{context_block}
+INDEXING RULES FOR SPELLING:
+- start_pos, end_pos are 0-based character indices on the ORIGINAL CONTENT.
+- end_pos is exclusive (Python slicing style: content[start_pos:end_pos]).
 
-------------------------------------------
-### DOCUMENT (CONTENT STRING TO ANALYSE)
+BRAND / MODEL NAMES:
+- Do NOT treat brand names, product names, or clearly invented model names as spelling errors
+  (e.g., "iPhone", "YouTube", "Z-Trax", "NeuroLearn-X", "LogicGuard").
+
+---------------------------
+CONTEXT
+{ctx_block}
+
+---------------------------
+DOCUMENT (CONTENT STRING TO ANALYSE)
 <<<BEGIN DOCUMENT>>>
 {content}
 <<<END DOCUMENT>>>
 
-You MUST use this exact CONTENT above to:
-- Detect contradictions, undefined terms, unsupported claims, logical jumps.
-- Detect spelling errors (both English and Vietnamese).
-- Compute all start_pos / end_pos for spelling_errors.
+You MUST always refer to THIS exact content string for:
+- All substring positions in spelling_errors.
+- All sentences and paragraphs used in logical and factual analysis.
 
-------------------------------------------
-### SUBTASK 1 – CONTRADICTIONS
+---------------------------
+STEP 1 – SPELLING ERRORS (HIGHEST PRIORITY)
 
-- Find pairs of statements (sentences) that cannot both be true.
-- Look for conflicting facts, numbers, dates, events, or strong opinions that directly oppose each other.
-- For each contradiction item:
-  - sentence1, sentence2: full sentences from CONTENT.
-  - sentence1_location, sentence2_location: short descriptions like "Paragraph 1, Sentence 2".
-  - contradiction_type: short label, e.g. "factual", "numerical", "temporal", "logical".
-  - severity: one of ["high", "medium", "low"].
-  - explanation: 1–3 sentences explaining why they contradict.
-  - suggestion: concrete suggestion to resolve or clarify the conflict.
-- total_found MUST equal the length of items.
+Goal:
+- First, scan the entire content for obvious spelling mistakes in English AND Vietnamese.
+- This reduces noise so later tasks do not confuse typos with undefined terms or unsupported claims.
 
-------------------------------------------
-### SUBTASK 2 – UNDEFINED TERMS
+Rules:
+- Only flag a spelling error if you are at least ~70% confident it is wrong in context.
+- Check at least 1–3 words before and after the token/phrase to understand context.
+- If the token is a proper noun, brand, or likely name → do NOT mark it as error.
+- If the token is a mixed EN+VI phrase but still makes sense for bilingual readers,
+  do NOT mark it as error unless it is clearly misspelled.
 
-- Find technical terms, acronyms, model names, product names, or domain-specific concepts
-  that are important but NOT clearly defined at first use.
-- A term is considered "defined" if:
-  - It has an explicit definition (e.g., "X is...", "X means..."), OR
-  - It has a short explanation in parentheses, OR
-  - The meaning is very clear for the expected audience.
-- Do NOT treat obvious spelling mistakes as undefined terms.
-- For each undefined term item:
-  - term: exact substring from CONTENT (respect original casing, accents, etc.).
-  - first_appeared: location like "Paragraph 2, Sentence 1".
-  - context_snippet: short snippet (< 150 chars) around the first occurrence.
-  - is_defined: usually false for undefined terms; may be true for partially defined but still unclear.
-  - reason: why this term is considered undefined or unclear.
-  - suggestion: how the author could define or clarify it.
-- total_found MUST equal the length of items.
+Examples that SHOULD be flagged:
+- EN:
+    - "smple" → "simple"
+    - "speling" → "spelling"
+    - "erors" → "errors"
+- VI:
+    - "nghien cúu" → "nghiên cứu"
+    - "cơ thễ" → "cơ thể"
+    - "bằng trứng khoa học" → "bằng chứng khoa học"
 
-------------------------------------------
-### SUBTASK 3 – UNSUPPORTED CLAIMS
+For each spelling error item:
+- original: exact substring from CONTENT (respect casing & accents).
+- suggested: the final corrected form (short phrase or word) → direct answer, no step-by-step.
+- start_pos, end_pos: character span in CONTENT.
+- language: "en" or "vi" (best guess).
+- reason: very short explanation why this is a spelling error in this context.
 
-A claim is:
-- A statement that asserts something about reality, trends, relationships, predictions, comparisons, or causes.
+IMPORTANT:
+- Perform spelling detection FIRST.
+- Later subtasks MUST NOT treat a substring already clearly handled as a spelling error
+  as an undefined term or part of unsupported_claims.
 
-Evidence can be:
-- Data, statistics, examples, citations, or explicit reasoning.
+---------------------------
+STEP 2 – UNSUPPORTED CLAIMS
 
-A claim is "supported" ONLY IF:
-- There is evidence in the same sentence, OR
+After spelling is identified:
+- Detect claims that require evidence but have no adequate support nearby.
+
+Claims:
+- Statements about facts, predictions, comparisons, causal links, or strong opinions presented as facts.
+
+Evidence:
+- Data, statistics, examples, citations, or strong reasoning.
+
+A claim is considered supported ONLY IF there is evidence:
+- In the same sentence, OR
 - Within ±2 sentences, OR
 - Clearly in the same paragraph and explicitly connected.
 
 For each unsupported claim item:
-- claim: the main sentence or clause.
-- location: e.g., "Paragraph 3, Sentence 2".
-- status: one of ["unsupported", "weak", "partially_supported"].
-- claim_type: e.g. "absolute", "comparative", "causal", "predictive".
+- claim: main sentence or clause.
+- location: "Paragraph X, Sentence Y".
+- status: "unsupported" | "weak" | "partially_supported".
+- claim_type: "absolute" | "comparative" | "causal" | "predictive" | ...
 - reason: why the support is missing or weak.
-- surrounding_context: short snippet around the claim.
-- suggestion: what kind of evidence or rephrasing would fix it.
+- surrounding_context: short nearby snippet.
+- suggestion: short, direct hint (e.g., "Add concrete data or citation").
 
-total_found MUST equal the length of items.
+---------------------------
+STEP 3 – UNDEFINED TERMS
 
-------------------------------------------
-### SUBTASK 4 – LOGICAL JUMPS
+Next, look for undefined important terminology.
 
-- Inspect transitions between paragraphs.
-- A logical jump occurs when the topic or reasoning changes abruptly
-  without any clear bridge sentence, explanation, or justification.
-- For each item:
-  - from_paragraph: 1-based index of the source paragraph.
-  - to_paragraph: 1-based index of the target paragraph.
-  - from_paragraph_summary: 1–2 sentence summary of the source paragraph.
-  - to_paragraph_summary: 1–2 sentence summary of the target paragraph.
-  - coherence_score: float between 0 and 1 (1 = very coherent, 0 = no connection).
-  - flag: short label like "abrupt_topic_shift" or "missing_explanation".
-  - severity: one of ["high", "medium", "low"] (based on how harmful the jump is).
-  - explanation: why this is considered a logical jump.
-  - suggestion: how to add a bridge or restructure paragraphs.
-- Only include items where coherence_score < 0.7.
-- total_found MUST equal the length of items.
+Rules:
+- DO NOT mark plain typos (especially words that should be in spelling_errors) as undefined terms.
+- Ignore common English words used naturally in Vietnamese sentences (e.g., "AI system", "model accuracy"),
+  unless they are clearly special metrics or names.
 
-------------------------------------------
-### SUBTASK 5 – SPELLING ERRORS (EN + VI)
+For each undefined term item:
+- term: exact substring from CONTENT.
+- first_appeared: "Paragraph X, Sentence Y".
+- context_snippet: short snippet around first occurrence.
+- is_defined: true/false depending on whether a definition is provided close to first use.
+- reason: why it is unclear or missing a definition.
+- suggestion: short recommendation (e.g., "Add a one-line definition the first time it appears.").
 
-- Detect spelling mistakes in both English and Vietnamese in the CONTENT.
-- Include common typos, extra letters, missing letters, swapped letters,
-  or obviously wrong spellings of common words or phrases.
-- BE CONSERVATIVE:
-  - Do NOT "correct" brand names, product names, or custom model names
-    if they look intentional (e.g., "iPhone", "YouTube", "NavierGreen", "Z-Trax").
-  - Do NOT "correct" technical AI terms unless they are clearly misspelled
-    (e.g., "deeplearnnig" → "deep learning").
-  - If you are uncertain whether a word is wrong, DO NOT mark it as an error.
-- Examples of words that SHOULD be flagged as spelling errors:
-  - "deeplearnnig" → "deep learning"
-  - "databaes" → "database"
-  - "algoritm" → "algorithm"
-  - "platfomr" → "platform"
-  - "tạoo" → "tạo" (when used in a Vietnamese sentence about "trí tuệ nhân tạoo")
-- For each spelling error item:
-  - original: exact substring from CONTENT that is misspelled.
-  - suggested: corrected spelling.
-  - start_pos: 0-based character index in CONTENT where the misspelled substring starts.
-  - end_pos: exclusive 0-based index where it ends (like content[start_pos:end_pos]).
-  - language: "en" or "vi" (best guess).
-  - reason: short explanation why this is considered a spelling error.
-- If there are no obvious spelling errors, set total_found = 0 and items = [].
-- total_found MUST equal the length of items.
+---------------------------
+STEP 4 – CONTRADICTIONS
 
-------------------------------------------
-### JSON OUTPUT FORMAT (STRICT)
+Then, detect contradictions between statements.
 
-Return JSON with exactly this structure (field names must match):
+Definition:
+- Two statements cannot both be true in the same context if they disagree on:
+    - Facts, numbers, dates, outcomes, or strong evaluations.
+
+For each contradiction item:
+- sentence1, sentence2: full sentences from CONTENT.
+- sentence1_location, sentence2_location: e.g., "Paragraph 1, Sentence 2".
+- contradiction_type: "factual" | "numerical" | "temporal" | "logical".
+- severity: "high" | "medium" | "low".
+- explanation: short description of the conflict.
+- suggestion: short hint on how to resolve or clarify (no long tutorial).
+
+---------------------------
+STEP 5 – LOGICAL JUMPS (LOWEST PRIORITY)
+
+Finally, check transitions between paragraphs.
+
+Logical jump:
+- The topic or reasoning changes abruptly without a clear bridge,
+  explanation, or justification.
+
+For each item:
+- from_paragraph: 1-based index of source paragraph.
+- to_paragraph: 1-based index of target paragraph.
+- from_paragraph_summary: 1–2 sentence summary of source paragraph.
+- to_paragraph_summary: 1–2 sentence summary of target paragraph.
+- coherence_score: float 0–1 (1 = very coherent, 0 = no connection).
+- flag: short label, e.g., "abrupt_topic_shift", "missing_explanation".
+- severity: "high" | "medium" | "low".
+- explanation: why the jump feels abrupt.
+- suggestion: short hint on how to add a bridge or restructure.
+
+Only include logical_jumps items where coherence_score < 0.7.
+
+---------------------------
+STRICT JSON OUTPUT FORMAT (A2)
+
+Return JSON with exactly this structure and field names:
 
 {{
-    "analysis_metadata": {{
-        "analyzed_at": "ISO timestamp",
-        "writing_type": "{writing_type}",
-        "total_paragraphs": <int>,
-        "total_sentences": <int>
-    }},
-    
-    "contradictions": {{
-        "total_found": <int>,
-        "items": [
-            {{
-                "id": 1,
-                "sentence1": "Full text of first statement",
-                "sentence2": "Full text of contradicting statement",
-                "sentence1_location": "Paragraph X, Sentence Y",
-                "sentence2_location": "Paragraph A, Sentence B",
-                "contradiction_type": "factual|numerical|temporal|logical",
-                "severity": "high|medium|low",
-                "explanation": "Why these two statements contradict each other",
-                "suggestion": "How to resolve or clarify the conflict"
-            }}
-        ]
-    }},
-    
-    "undefined_terms": {{
-        "total_found": <int>,
-        "items": [
-            {{
-                "term": "gradient clipping",
-                "first_appeared": "Paragraph 3, Sentence 1",
-                "context_snippet": "Short excerpt showing where the term appears...",
-                "is_defined": false,
-                "reason": "Term appears without definition or clear explanation",
-                "suggestion": "Provide a short definition or explanation the first time it appears"
-            }}
-        ]
-    }},
-    
-    "unsupported_claims": {{
-        "total_found": <int>,
-        "items": [
-            {{
-                "claim": "AI can perfectly predict human emotions.",
-                "location": "Paragraph 2, Sentence 3",
-                "status": "unsupported",
-                "claim_type": "absolute|comparative|causal|predictive",
-                "reason": "No supporting data, examples, or citations within ±2 sentences",
-                "surrounding_context": "Short excerpt around the claim...",
-                "suggestion": "Add concrete evidence, cite research, or weaken the claim."
-            }}
-        ]
-    }},
-    
-    "logical_jumps": {{
-        "total_found": <int>,
-        "items": [
-            {{
-                "from_paragraph": 5,
-                "to_paragraph": 6,
-                "from_paragraph_summary": "Short summary of paragraph 5 topic",
-                "to_paragraph_summary": "Short summary of paragraph 6 topic",
-                "coherence_score": 0.32,
-                "flag": "logical_jump",
-                "severity": "high|medium|low",
-                "explanation": "Why this transition feels abrupt or poorly connected",
-                "suggestion": "Add a linking sentence, reorder paragraphs, or clarify why the topic changes."
-            }}
-        ]
-    }},
-    
-    "spelling_errors": {{
-        "total_found": <int>,
-        "items": [
-            {{
-                "original": "deeplearnnig",
-                "suggested": "deep learning",
-                "start_pos": 120,
-                "end_pos": 132,
-                "language": "en",
-                "reason": "Common English AI term misspelled (letters swapped)"
-            }}
-        ]
-    }},
-    
-    "summary": {{
-        "total_issues": <int>,
-        "critical_issues": <int>,
-        "document_quality_score": <int>,
-        "key_recommendations": [
-            "Most important recommendation 1",
-            "Most important recommendation 2",
-            "Most important recommendation 3"
-        ]
-    }}
+  "analysis_metadata": {{
+    "analyzed_at": "ISO timestamp",
+    "writing_type": "{writing_type}",
+    "total_paragraphs": <int>,
+    "total_sentences": <int>
+  }},
+
+  "contradictions": {{
+    "total_found": <int>,
+    "items": [
+      {{
+        "id": 1,
+        "sentence1": "Full text of first statement",
+        "sentence2": "Full text of contradicting statement",
+        "sentence1_location": "Paragraph X, Sentence Y",
+        "sentence2_location": "Paragraph A, Sentence B",
+        "contradiction_type": "factual|numerical|temporal|logical",
+        "severity": "high|medium|low",
+        "explanation": "Short explanation of why these statements conflict.",
+        "suggestion": "Short hint on how to resolve or clarify."
+      }}
+    ]
+  }},
+
+  "undefined_terms": {{
+    "total_found": <int>,
+    "items": [
+      {{
+        "term": "gradient clipping",
+        "first_appeared": "Paragraph 3, Sentence 1",
+        "context_snippet": "Short excerpt where the term appears...",
+        "is_defined": false,
+        "reason": "Term is important but never explained.",
+        "suggestion": "Add a brief definition on first use."
+      }}
+    ]
+  }},
+
+  "unsupported_claims": {{
+    "total_found": <int>,
+    "items": [
+      {{
+        "claim": "AI can perfectly predict human emotions.",
+        "location": "Paragraph 2, Sentence 3",
+        "status": "unsupported",
+        "claim_type": "absolute",
+        "reason": "No data or citation is provided.",
+        "surrounding_context": "Short excerpt around the claim...",
+        "suggestion": "Provide concrete data, citation, or soften the claim."
+      }}
+    ]
+  }},
+
+  "logical_jumps": {{
+    "total_found": <int>,
+    "items": [
+      {{
+        "from_paragraph": 5,
+        "to_paragraph": 6,
+        "from_paragraph_summary": "Short summary of paragraph 5...",
+        "to_paragraph_summary": "Short summary of paragraph 6...",
+        "coherence_score": 0.32,
+        "flag": "abrupt_topic_shift",
+        "severity": "high|medium|low",
+        "explanation": "Why this transition feels abrupt.",
+        "suggestion": "Add a linking sentence or explanation."
+      }}
+    ]
+  }},
+
+  "spelling_errors": {{
+    "total_found": <int>,
+    "items": [
+      {{
+        "original": "speling",
+        "suggested": "spelling",
+        "start_pos": 32,
+        "end_pos": 39,
+        "language": "en",
+        "reason": "\"speling\" is a common misspelling of \"spelling\"."
+      }}
+    ]
+  }},
+
+  "summary": {{
+    "total_issues": <int>,
+    "critical_issues": <int>,
+    "document_quality_score": <int>,
+    "key_recommendations": [
+      "Short key recommendation 1",
+      "Short key recommendation 2",
+      "Short key recommendation 3"
+    ]
+  }}
 }}
 
-- total_issues should approximately equal:
-  contradictions.total_found
-  + undefined_terms.total_found
-  + unsupported_claims.total_found
-  + logical_jumps.total_found
-  + spelling_errors.total_found
+- total_issues ≈ contradictions.total_found
+                 + undefined_terms.total_found
+                 + unsupported_claims.total_found
+                 + logical_jumps.total_found
+                 + spelling_errors.total_found
 
-------------------------------------------
-Return ONLY valid JSON. Do NOT include markdown, comments, or any text outside the JSON.
+Return ONLY this JSON object. No markdown, no extra text.
 """
     return prompt
 
 
 # =======================================
-# 4. UNIFIED ANALYSIS – VIETNAMESE
+# 4. UNIFIED ANALYSIS – VIETNAMESE (A2)
 # =======================================
 
 def prompt_analysis_vi(context: Dict[str, Any], content: str) -> str:
     """
-    Unified Vietnamese prompt – 5 nhiệm vụ:
-    1) Mâu thuẫn logic
-    2) Thuật ngữ chưa định nghĩa
-    3) Luận điểm thiếu chứng cứ
-    4) Nhảy logic
-    5) Lỗi chính tả (VI + EN trong văn bản)
-    ƯU TIÊN: phát hiện lỗi chính tả TRƯỚC, sau đó mới tới các lỗi logic khác.
+    Unified Vietnamese prompt (A2) – 5 nhiệm vụ, với thứ tự ưu tiên:
+    1) Lỗi chính tả (spelling_errors – VI + EN trong văn bản)
+    2) Luận điểm thiếu chứng cứ (unsupported_claims)
+    3) Thuật ngữ chưa định nghĩa (undefined_terms)
+    4) Mâu thuẫn logic (contradictions)
+    5) Nhảy logic (logical_jumps)
+
+    Mục tiêu:
+    - Ưu tiên phát hiện lỗi chính tả chính xác, tránh nhầm với undefined_terms.
+    - Không hướng dẫn từng bước, chỉ trả JSON kết quả cuối.
+    - Hỗ trợ cả văn bản thuần VI và mixed VI + EN.
     """
 
     writing_type = context.get("writing_type", "Văn bản")
@@ -585,237 +636,239 @@ def prompt_analysis_vi(context: Dict[str, Any], content: str) -> str:
     criteria = context.get("criteria", [])
     constraints = context.get("constraints", [])
 
-    context_lines = []
-    context_lines.append(f"Loại văn bản: {writing_type}")
+    ctx_lines = [f"Loại văn bản: {writing_type}"]
     if main_goal:
-        context_lines.append(f"Mục tiêu chính: {main_goal}")
+        ctx_lines.append(f"Mục tiêu chính: {main_goal}")
     if criteria:
-        context_lines.append("Tiêu chí đánh giá:")
-        for c in criteria:
-            context_lines.append(f"  - {c}")
+        ctx_lines.append("Tiêu chí đánh giá:")
+        ctx_lines.extend(f"  - {c}" for c in criteria)
     if constraints:
-        context_lines.append("Ràng buộc:")
-        for r in constraints:
-            context_lines.append(f"  - {r}")
-    context_block = "\n".join(context_lines)
+        ctx_lines.append("Ràng buộc:")
+        ctx_lines.extend(f"  - {c}" for c in constraints)
+    ctx_block = "\n".join(ctx_lines)
 
     prompt = f"""
-Bạn là LogicGuard – AI phân tích logic và cấu trúc cho các tài liệu {writing_type}.
+Bạn là LogicGuard – AI phân tích logic và cấu trúc cho các tài liệu {writing_type} (tiếng Việt, có thể xen tiếng Anh).
 
-Nhiệm vụ: phân tích văn bản theo 5 chiều:
-1) Mâu thuẫn logic (Contradictions)
-2) Thuật ngữ chưa định nghĩa (Undefined Terms)
-3) Luận điểm thiếu chứng cứ (Unsupported Claims)
-4) Nhảy logic (Logical Jumps)
-5) Lỗi chính tả (tiếng Việt + tiếng Anh xuất hiện trong văn bản)
+Bạn PHẢI phân tích văn bản theo 5 loại vấn đề, theo THỨ TỰ ƯU TIÊN sau:
+1) Lỗi chính tả (Spelling Errors – tiếng Việt + tiếng Anh)
+2) Luận điểm thiếu chứng cứ (Unsupported Claims)
+3) Thuật ngữ chưa định nghĩa (Undefined Terms)
+4) Mâu thuẫn logic (Contradictions)
+5) Nhảy logic (Logical Jumps)
 
 Bạn nhận được:
-- CONTEXT: thông tin tổng quan về nhiệm vụ viết.
-- CONTENT: toàn bộ văn bản gốc dạng chuỗi.
+- CONTEXT: thông tin nhiệm vụ viết.
+- CONTENT: toàn bộ văn bản gốc dạng chuỗi (có thể VI + EN xen lẫn).
 
-⚠️ QUY TẮC ƯU TIÊN CỰC KỲ QUAN TRỌNG:
-- BƯỚC 1: Đọc toàn bộ văn bản và PHẢI phát hiện lỗi chính tả trước tiên.
-- BƯỚC 2: Sau khi đã xác định xong các lỗi chính tả rõ ràng, bạn mới phân tích 4 nhóm lỗi logic còn lại.
-- Nếu bạn phát hiện ÍT NHẤT 1 lỗi chính tả rõ ràng:
-    + Bạn BẮT BUỘC phải đặt "spelling_errors.total_found" >= 1.
-    + Bạn BẮT BUỘC phải liệt kê đầy đủ các lỗi đó trong "spelling_errors.items".
-    + KHÔNG ĐƯỢC bỏ trống "spelling_errors" nếu trong văn bản có lỗi.
+QUY TẮC CHUNG VỀ JSON:
+- Chỉ trả về DUY NHẤT một object JSON.
+- Không có markdown, không có giải thích ngoài JSON.
+- Mỗi phần phải tồn tại:
+    - analysis_metadata
+    - contradictions
+    - undefined_terms
+    - unsupported_claims
+    - logical_jumps
+    - spelling_errors
+    - summary
+- Nếu không có lỗi ở một loại, để:
+    - total_found = 0
+    - items = []
 
-- Nếu bạn gần như chắc chắn (> 70%) một từ/cụm từ là sai chính tả theo NGỮ CẢNH,
-  bạn PHẢI gắn cờ lỗi đó (KHÔNG bỏ qua chỉ vì hơi không chắc).
+QUY TẮC VỊ TRÍ (spelling_errors):
+- start_pos, end_pos là index ký tự 0-based trên chuỗi CONTENT gốc.
+- end_pos là exclusive, như Python slicing: content[start_pos:end_pos].
 
-------------------------------------------
-### NGỮ CẢNH
-{context_block}
+---------------------------
+NGỮ CẢNH
+{ctx_block}
 
-------------------------------------------
-### VĂN BẢN (CONTENT GỐC CẦN PHÂN TÍCH)
+---------------------------
+VĂN BẢN GỐC (CONTENT)
 <<<BẮT ĐẦU VĂN BẢN>>>
 {content}
 <<<KẾT THÚC VĂN BẢN>>>
 
-Bạn PHẢI dùng chính xác chuỗi CONTENT trên để:
-- Phát hiện mâu thuẫn, thuật ngữ chưa định nghĩa, luận điểm thiếu chứng cứ, nhảy logic.
-- Phát hiện lỗi chính tả (tiếng Việt + tiếng Anh).
-- Tính mọi start_pos / end_pos cho spelling_errors.
+Mọi phân tích bên dưới PHẢI dựa trên chính xác chuỗi CONTENT này.
 
-------------------------------------------
-### 1) MÂU THUẪN LOGIC (contradictions)
+---------------------------
+BƯỚC 1 – LỖI CHÍNH TẢ (ƯU TIÊN CAO NHẤT)
 
-- Tìm các cặp câu / phát biểu không thể cùng đúng.
-- Tập trung vào xung đột về số liệu, ngày tháng, sự kiện, hoặc khẳng định đối lập trực tiếp.
-- Mỗi item:
-  - sentence1, sentence2: toàn bộ hai câu mâu thuẫn.
-  - sentence1_location, sentence2_location: mô tả ngắn, ví dụ "Đoạn 1, Câu 2".
-  - contradiction_type: "factual" | "numerical" | "temporal" | "logical".
-  - severity: "high" | "medium" | "low".
-  - explanation: 1–3 câu giải thích vì sao hai câu mâu thuẫn.
-  - suggestion: gợi ý cụ thể để sửa hoặc làm rõ.
-- total_found PHẢI bằng số lượng items.
+Mục tiêu:
+- Tìm lỗi chính tả rõ ràng trong cả tiếng Việt và tiếng Anh.
+- Giảm nhiễu cho các bước sau (tránh nhầm typo thành thuật ngữ hoặc luận điểm).
 
-------------------------------------------
-### 2) THUẬT NGỮ CHƯA ĐỊNH NGHĨA (undefined_terms)
+Hướng dẫn:
+- Đọc toàn văn bản, kiểm tra từ/cụm từ trong NGỮ CẢNH.
+- Ít nhất phải nhìn 1–3 từ TRƯỚC và 1–3 từ SAU để hiểu ngữ cảnh.
+- Nếu từ/cụm từ gần như chắc chắn là sai chính tả trong ngữ cảnh → gắn cờ lỗi.
 
-- Tìm các thuật ngữ kỹ thuật, tên mô hình, tên sản phẩm, từ viết tắt,
-  khái niệm chuyên ngành quan trọng nhưng KHÔNG được giải thích rõ ở lần xuất hiện đầu.
-- Một thuật ngữ được xem là "đã định nghĩa" nếu:
-  - Có câu giải thích kiểu "X là...", "X được hiểu là...", HOẶC
-  - Có giải thích ngắn trong ngoặc đơn, HOẶC
-  - Ý nghĩa hiển nhiên với đối tượng độc giả mục tiêu.
-- KHÔNG coi các lỗi chính tả hiển nhiên (deeplearnnig, algoritm, platfomr, tạoo, ...),
-  hoặc các từ như "cơ thễ", "nghiên cú", "bằng trứng" là "thuật ngữ".
-  Nếu có vẻ chỉ là typo cho một từ phổ biến, hãy bỏ qua trong undefined_terms
-  và để vào spelling_errors.
-- Mỗi item:
-  - term: đúng chuỗi trong CONTENT (giữ nguyên chữ hoa, dấu, ...).
-  - first_appeared: ví dụ "Đoạn 2, Câu 1".
-  - context_snippet: trích đoạn ngắn (< 150 ký tự) xung quanh lần xuất hiện đầu.
-  - is_defined: thường false cho thuật ngữ chưa định nghĩa; có thể true nếu có giải thích nhưng vẫn chưa rõ.
-  - reason: vì sao xem là chưa định nghĩa / chưa rõ.
-  - suggestion: gợi ý cách bổ sung định nghĩa.
-- total_found PHẢI bằng số lượng items.
-
-------------------------------------------
-### 3) LUẬN ĐIỂM THIẾU CHỨNG CỨ (unsupported_claims)
-
-Luận điểm là:
-- Khẳng định về sự thật, xu hướng, quan hệ, dự đoán, so sánh, hay nhân quả.
-
-Chứng cứ có thể là:
-- Dữ liệu, thống kê, ví dụ, trích dẫn, hoặc lập luận logic rõ ràng.
-
-Một luận điểm chỉ được xem là "có chứng cứ" nếu:
-- Có chứng cứ trong cùng câu, HOẶC
-- Trong khoảng ±2 câu lân cận, HOẶC
-- Rõ ràng trong cùng đoạn và có liên kết trực tiếp.
-
-Mỗi item:
-- claim: câu hoặc mệnh đề chứa luận điểm.
-- location: ví dụ "Đoạn 3, Câu 2".
-- status: "unsupported" | "weak" | "partially_supported".
-- claim_type: "absolute" | "comparative" | "causal" | "predictive" | ...
-- reason: giải thích vì sao chứng cứ thiếu hoặc yếu.
-- surrounding_context: trích đoạn ngắn xung quanh luận điểm.
-- suggestion: gợi ý loại chứng cứ cần bổ sung hoặc cách giảm mức độ tuyệt đối của câu.
-
-total_found PHẢI bằng số lượng items.
-
-------------------------------------------
-### 4) NHẢY LOGIC (logical_jumps)
-
-- Xem xét sự chuyển ý giữa các đoạn văn.
-- Nhảy logic xảy ra khi chủ đề hoặc lập luận đổi hướng đột ngột,
-  thiếu câu nối, giải thích, hoặc mối liên hệ rõ ràng.
-- Mỗi item:
-  - from_paragraph: số thứ tự đoạn nguồn (bắt đầu từ 1).
-  - to_paragraph: số thứ tự đoạn đích (bắt đầu từ 1).
-  - from_paragraph_summary: tóm tắt 1–2 câu nội dung đoạn nguồn.
-  - to_paragraph_summary: 1–2 câu nội dung đoạn đích.
-  - coherence_score: số thực 0–1 (1 = rất mạch lạc, 0 = hầu như không liên quan).
-  - flag: nhãn ngắn, ví dụ "abrupt_topic_shift", "missing_explanation".
-  - severity: "high" | "medium" | "low".
-  - explanation: tại sao xem đây là nhảy logic.
-  - suggestion: gợi ý thêm câu chuyển ý, sắp xếp lại đoạn, hoặc giải thích liên kết.
-- Chỉ đưa vào các item có coherence_score < 0.7.
-- total_found PHẢI bằng số lượng items.
-
-------------------------------------------
-### 5) LỖI CHÍNH TẢ (spelling_errors – tiếng Việt + tiếng Anh)
-
-ĐÂY LÀ BƯỚC ƯU TIÊN HÀNG ĐẦU.
-
-- Phát hiện lỗi chính tả rõ ràng trong cả tiếng Việt và tiếng Anh xuất hiện trong CONTENT.
-
-KHI KIỂM TRA TỪ / CỤM TỪ, BẠN PHẢI:
-- Nhìn ít nhất 1–3 từ TRƯỚC và 1–3 từ SAU.
-- Đánh giá cả CỤM có tự nhiên và có nghĩa trong tiếng Việt hay không.
-- Nếu một từ tự nó "có vẻ đúng", nhưng cả cụm trở nên vô nghĩa, hãy coi đó là lỗi chính tả.
-
-Ví dụ (dựa trên NGỮ CẢNH):
-- "cơ thễ" trong câu nói về sức khỏe → phải là "cơ thể".
-- "nghiên cú" trong câu nói về nghiên cứu khoa học → phải là "nghiên cứu".
-- "bằng trứng khoa học" trong ngữ cảnh luận điểm → phải là "bằng chứng khoa học".
-- "nướt tăng lực" trong đoạn nói về nước uống → phải là "nước tăng lực".
-- "kích hoặt năng lượng não bộ" → phải là "kích hoạt năng lượng não bộ".
-- "khả nằng" → "khả năng".
+Ví dụ nên gắn cờ:
+- "compaeny" → "company" (EN)
+- "repoort" → "report" (EN)
+- "nghien cúu" → "nghiên cứu" (VI)
+- "cơ thễ" → "cơ thể" (VI)
+- "bằng trứng khoa học" → "bằng chứng khoa học" (VI)
 
 QUY TẮC QUAN TRỌNG:
 - KHÔNG sửa tên thương hiệu, tên riêng, tên sản phẩm/mô hình nếu có vẻ cố ý:
-  ví dụ: "Zindra", "Liora", "Tinh Vân Định Chuẩn", "Tâm Linh Omega".
-- Chỉ sửa nếu cực kỳ rõ là gõ sai (dựa trên ngữ cảnh).
-- Nếu bạn KHÔNG CHẮC tới 70% rằng từ đó sai → BỎ QUA, KHÔNG gắn cờ.
+  Ví dụ: "Zindra", "Tinh Vân Định Chuẩn", "Tâm Linh Omega".
+- Nếu không chắc ≥ 70% rằng từ đó sai → BỎ QUA, KHÔNG gắn cờ.
+- Với câu VI + EN xen lẫn, chỉ đánh lỗi chính tả nếu:
+  - Từ đó sai trong ngôn ngữ của nó (EN/VI), VÀ
+  - Khi sửa, cụm trở nên tự nhiên hơn rõ rệt.
 
 Mỗi item trong spelling_errors:
-- original: chuỗi gốc trong CONTENT bị sai chính tả.
-- suggested: phiên bản chính tả đúng theo NGỮ CẢNH.
-- start_pos: index ký tự bắt đầu (0-based) trong CONTENT.
-- end_pos: index ký tự kết thúc dạng exclusive (0-based).
+- original: chuỗi gốc bị sai chính tả.
+- suggested: phiên bản đúng cuối cùng (đáp án trực tiếp, không từng bước).
+- start_pos: index bắt đầu (0-based) trong CONTENT.
+- end_pos: index kết thúc dạng exclusive.
 - language: "vi" hoặc "en".
-- reason: giải thích ngắn vì sao đây là lỗi chính tả và vì sao cách sửa phù hợp với NGỮ CẢNH.
+- reason: giải thích ngắn vì sao đây là lỗi trong ngữ cảnh.
 
-Nếu không có lỗi rõ ràng:
-- total_found = 0
-- items = [].
+Bước này phải thực hiện TRƯỚC. Các bước sau KHÔNG được coi các typo này là undefined_terms.
 
-total_found PHẢI bằng số lượng items.
-------------------------------------------
-### ĐỊNH DẠNG JSON ĐẦU RA (CHUẨN)
+---------------------------
+BƯỚC 2 – LUẬN ĐIỂM THIẾU CHỨNG CỨ (UNSUPPORTED CLAIMS)
 
-Bạn PHẢI trả về JSON với cấu trúc (tên trường y hệt):
+Sau khi xử lý chính tả, bạn tìm:
+- Các câu/mệnh đề khẳng định điều gì đó (sự thật, xu hướng, hiệu quả, dự đoán, so sánh, quan hệ nhân quả)
+  mà KHÔNG có dữ liệu, ví dụ, trích dẫn hoặc lập luận đủ mạnh.
+
+Một luận điểm chỉ được xem là CÓ CHỨNG CỨ nếu:
+- Có bằng chứng trong cùng câu, HOẶC
+- Trong khoảng ±2 câu lân cận, HOẶC
+- Trong cùng đoạn với liên kết rõ ràng.
+
+Mỗi item:
+- claim: câu hoặc mệnh đề chứa luận điểm.
+- location: ví dụ "Đoạn 2, Câu 3".
+- status: "unsupported" | "weak" | "partially_supported".
+- claim_type: "absolute" | "comparative" | "causal" | "predictive" | ...
+- reason: giải thích ngắn vì sao thiếu chứng cứ.
+- surrounding_context: trích đoạn ngắn xung quanh.
+- suggestion: gợi ý ngắn (ví dụ: "Bổ sung số liệu hoặc dẫn chứng nghiên cứu").
+
+---------------------------
+BƯỚC 3 – THUẬT NGỮ CHƯA ĐỊNH NGHĨA (UNDEFINED TERMS)
+
+Tiếp theo, bạn tìm:
+- Thuật ngữ kỹ thuật, tên mô hình, tên hệ thống, metric lạ, từ viết tắt quan trọng
+  nhưng không được giải thích rõ ở lần xuất hiện đầu.
+
+Lưu ý:
+- KHÔNG coi các lỗi chính tả đã thuộc spelling_errors là thuật ngữ.
+- KHÔNG đánh dấu các từ tiếng Anh phổ thông (system, model, accuracy, data, ...) là undefined_terms
+  nếu dùng tự nhiên trong câu tiếng Việt.
+
+Mỗi item:
+- term: đúng chuỗi xuất hiện trong CONTENT.
+- first_appeared: ví dụ "Đoạn 3, Câu 1".
+- context_snippet: trích đoạn ngắn quanh lần xuất hiện đầu.
+- is_defined: true/false (có được giải thích gần đó hay không).
+- reason: vì sao xem là chưa định nghĩa / khó hiểu.
+- suggestion: khuyến nghị ngắn (ví dụ: "Thêm 1 câu định nghĩa ngắn cho thuật ngữ này").
+
+---------------------------
+BƯỚC 4 – MÂU THUẪN LOGIC (CONTRADICTIONS)
+
+Sau đó, bạn tìm các cặp câu không thể cùng đúng.
+
+Ví dụ:
+- Cùng nói về một chương trình thử nghiệm:
+  - Câu A: "thử nghiệm thất bại hoàn toàn".
+  - Câu B: "thử nghiệm là một thành công vang dội".
+
+Mỗi item:
+- sentence1, sentence2: nguyên văn hai câu mâu thuẫn.
+- sentence1_location, sentence2_location: ví dụ "Đoạn 1, Câu 2".
+- contradiction_type: "factual" | "numerical" | "temporal" | "logical".
+- severity: "high" | "medium" | "low".
+- explanation: 1–2 câu giải thích xung đột.
+- suggestion: gợi ý ngắn để làm rõ hoặc thống nhất quan điểm.
+
+---------------------------
+BƯỚC 5 – NHẢY LOGIC (LOGICAL JUMPS)
+
+Cuối cùng, xem xét mạch nối giữa các đoạn.
+
+Nhảy logic xảy ra khi:
+- Chủ đề hoặc lập luận đổi hướng đột ngột,
+- Thiếu câu nối hoặc giải thích tại sao chuyển ý.
+
+Mỗi item:
+- from_paragraph: số đoạn nguồn (bắt đầu từ 1).
+- to_paragraph: số đoạn đích (bắt đầu từ 1).
+- from_paragraph_summary: tóm tắt ngắn 1–2 câu nội dung đoạn nguồn.
+- to_paragraph_summary: tóm tắt ngắn 1–2 câu nội dung đoạn đích.
+- coherence_score: số thực 0–1 (1 = rất mạch lạc, 0 = hầu như không liên quan).
+- flag: nhãn ngắn, ví dụ "abrupt_topic_shift", "missing_explanation".
+- severity: "high" | "medium" | "low".
+- explanation: vì sao xem đây là nhảy logic.
+- suggestion: gợi ý ngắn để thêm câu chuyển ý hoặc cấu trúc lại.
+
+Chỉ đưa vào các item có coherence_score < 0.7.
+
+---------------------------
+ĐỊNH DẠNG JSON ĐẦU RA (A2, CHUẨN)
+
+Bạn PHẢI trả về JSON với cấu trúc:
 
 {{
-    "analysis_metadata": {{
-        "analyzed_at": "Timestamp ISO",
-        "writing_type": "{writing_type}",
-        "total_paragraphs": <số nguyên>,
-        "total_sentences": <số nguyên>
-    }},
-    
-    "contradictions": {{
-        "total_found": <số nguyên>,
-        "items": [ ... ]
-    }},
-    
-    "undefined_terms": {{
-        "total_found": <số nguyên>,
-        "items": [ ... ]
-    }},
-    
-    "unsupported_claims": {{
-        "total_found": <số nguyên>,
-        "items": [ ... ]
-    }},
-    
-    "logical_jumps": {{
-        "total_found": <số nguyên>,
-        "items": [ ... ]
-    }},
-    
-    "spelling_errors": {{
-        "total_found": <số nguyên>,
-        "items": [ ... ]
-    }},
-    
-    "summary": {{
-        "total_issues": <tổng số vấn đề phát hiện>,
-        "critical_issues": <số vấn đề mức high>,
-        "document_quality_score": <0-100>,
-        "key_recommendations": [
-            "Khuyến nghị quan trọng 1",
-            "Khuyến nghị quan trọng 2",
-            "Khuyến nghị quan trọng 3"
-        ]
-    }}
+  "analysis_metadata": {{
+    "analyzed_at": "Timestamp ISO",
+    "writing_type": "{writing_type}",
+    "total_paragraphs": <số nguyên>,
+    "total_sentences": <số nguyên>
+  }},
+
+  "contradictions": {{
+    "total_found": <số nguyên>,
+    "items": [ ... ]
+  }},
+
+  "undefined_terms": {{
+    "total_found": <số nguyên>,
+    "items": [ ... ]
+  }},
+
+  "unsupported_claims": {{
+    "total_found": <số nguyên>,
+    "items": [ ... ]
+  }},
+
+  "logical_jumps": {{
+    "total_found": <số nguyên>,
+    "items": [ ... ]
+  }},
+
+  "spelling_errors": {{
+    "total_found": <số nguyên>,
+    "items": [ ... ]
+  }},
+
+  "summary": {{
+    "total_issues": <tổng số vấn đề>,
+    "critical_issues": <số vấn đề mức high>,
+    "document_quality_score": <0-100>,
+    "key_recommendations": [
+      "Khuyến nghị quan trọng 1",
+      "Khuyến nghị quan trọng 2",
+      "Khuyến nghị quan trọng 3"
+    ]
+  }}
 }}
 
-- total_issues nên xấp xỉ:
-  contradictions.total_found
-  + undefined_terms.total_found
-  + unsupported_claims.total_found
-  + logical_jumps.total_found
-  + spelling_errors.total_found
+Trong đó:
+- total_issues ≈ tổng số mục trong:
+  contradictions.items
+  + undefined_terms.items
+  + unsupported_claims.items
+  + logical_jumps.items
+  + spelling_errors.items
 
-------------------------------------------
-Chỉ trả về JSON hợp lệ. KHÔNG trả lời thêm, KHÔNG dùng markdown, KHÔNG giải thích ngoài JSON.
+Trả về DUY NHẤT object JSON này.
+KHÔNG dùng markdown, KHÔNG giải thích ngoài JSON.
 """
     return prompt

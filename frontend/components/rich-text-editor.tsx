@@ -34,7 +34,13 @@ import {
   Minus,
 } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
-import { useEffect, useState } from "react"
+import React, {
+  useEffect,
+  useState,
+  forwardRef,
+  useImperativeHandle,
+  type ForwardedRef,
+} from "react"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -45,6 +51,23 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
+export type AnalysisIssueType =
+  | "spelling_error"
+  | "undefined_term"
+  | "unsupported_claim"
+  | "logical_jump"
+  | "contradiction"
+
+export type AnalysisIssue = {
+  id: string
+  type: AnalysisIssueType
+  startPos: number
+  endPos: number
+  text: string
+  message?: string
+  suggestion?: string
+}
+
 interface RichTextEditorProps {
   onContentChange?: (content: string) => void
   initialContent?: string
@@ -53,40 +76,51 @@ interface RichTextEditorProps {
   onSuggestionAccept?: (issueId: string) => void
 }
 
-export type AnalysisIssue = {
-  id: string
-  type:
-    | "logic_contradiction"
-    | "logic_gap"
-    | "weak_evidence"
-    | "clarity_issue"
-    | "undefined_term"
-  startPos: number
-  endPos: number
-  text: string
-  message: string
-  suggestion?: string
+export type RichTextEditorHandle = {
+  applyIssueFix: (issue: AnalysisIssue) => void
 }
 
-const issueTypeLabels: Record<AnalysisIssue["type"], string> = {
-  logic_contradiction: "Logic Contradiction",
-  logic_gap: "Logic Gap",
-  weak_evidence: "Weak Evidence",
-  clarity_issue: "Clarity Issue",
+const issueTypeLabel: Record<AnalysisIssueType, string> = {
+  spelling_error: "Spelling Error",
   undefined_term: "Undefined Term",
+  unsupported_claim: "Unsupported Claim",
+  logical_jump: "Logical Jump",
+  contradiction: "Contradiction",
 }
 
-export function RichTextEditor({
-  onContentChange,
-  initialContent,
-  analysisActive = false,
-  analysisIssues = [],
-  onSuggestionAccept,
-}: RichTextEditorProps) {
-  const [replacedWords, setReplacedWords] = useState<Set<string>>(new Set())
+/**
+ * Màu highlight cho từng loại lỗi – dùng inline style để chắc chắn không bị Tailwind / prose override
+ */
+const issueTypeStyle: Record<AnalysisIssueType, string> = {
+  spelling_error:
+    "background-color:#FEF3C7;color:#92400E;text-decoration:underline;text-decoration-color:#F59E0B;text-decoration-thickness:2px;",
+  undefined_term:
+    "background-color:#F3E8FF;color:#6B21A8;text-decoration:underline;text-decoration-color:#A855F7;text-decoration-thickness:2px;",
+  unsupported_claim:
+    "background-color:#FFE4E6;color:#9F1239;text-decoration:underline;text-decoration-color:#FB7185;text-decoration-thickness:2px;",
+  logical_jump:
+    "background-color:#DBEAFE;color:#1D4ED8;text-decoration:underline;text-decoration-color:#60A5FA;text-decoration-thickness:2px;",
+  contradiction:
+    "background-color:#FFEDD5;color:#C2410C;text-decoration:underline;text-decoration-color:#FB923C;text-decoration-thickness:2px;",
+}
+
+function escapeRegExp(str: string) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+const InnerRichTextEditor = (
+  {
+    onContentChange,
+    initialContent,
+    analysisActive = false,
+    analysisIssues = [],
+    onSuggestionAccept,
+  }: RichTextEditorProps,
+  ref: ForwardedRef<RichTextEditorHandle>,
+) => {
   const [selectedBlock, setSelectedBlock] = useState("Text")
   const [selectedFont, setSelectedFont] = useState("Inter")
-  const [selectedSize, setSelectedSize] = useState("Medium")
+  const [selectedSize, setSelectedSize] = useState<FontSizeLabel>("Medium")
   const [fontColor, setFontColor] = useState("#37322F")
 
   const editor = useEditor({
@@ -110,7 +144,6 @@ export function RichTextEditor({
     onUpdate: ({ editor }) => {
       onContentChange?.(editor.getHTML())
     },
-    editable: !analysisActive,
   })
 
   const fontSizes: Record<string, string> = {
@@ -123,6 +156,7 @@ export function RichTextEditor({
 
   type FontSizeLabel = keyof typeof fontSizes
 
+  // Sync toolbar state
   useEffect(() => {
     if (!editor) return
 
@@ -169,31 +203,110 @@ export function RichTextEditor({
       editor.off("selectionUpdate", syncToolbarState)
       editor.off("transaction", syncToolbarState)
     }
-  }, [editor, fontSizes])
+  }, [editor])
 
-  if (editor && !analysisActive && replacedWords.size > 0) {
-    const currentContent = editor.getHTML()
-    let cleanedContent = currentContent
+  // Hàm dùng chung để apply sửa lỗi cho 1 issue (cho cả click trong editor & click ở sidebar)
+  const applyIssueFix = (issue: AnalysisIssue) => {
+    if (!editor) return
 
-    replacedWords.forEach(word => {
-      cleanedContent = cleanedContent.replace(
-        new RegExp(
-          `<span class="bg-green-100 text-green-700 font-semibold animate-pulse">${word.replace(
-            /[.*+?^${}()|[\]\\]/g,
-            "\\$&",
-          )}</span>`,
-          "g",
-        ),
-        word,
+    let html = editor.getHTML()
+
+    // Tìm span tương ứng với issue.id
+    const spanRegex = new RegExp(
+      `<span[^>]*class="[^"]*lg-issue[^"]*"[^>]*data-issue-id="${escapeRegExp(
+        issue.id,
+      )}"[^>]*>([\\s\\S]*?)<\\/span>`,
+      "m",
+    )
+
+    const innerText = issue.text || ""
+
+    const makeReplacement = () => {
+      // nếu không có suggestion thì chỉ bỏ highlight, giữ nguyên text gốc
+      if (!issue.suggestion || !innerText) {
+        return innerText
+      }
+
+      switch (issue.type) {
+        case "spelling_error":
+          // thay luôn bằng từ đúng
+          return issue.suggestion
+        case "undefined_term":
+          // thêm định nghĩa ngay sau từ
+          return `${innerText} (${issue.suggestion})`
+        case "unsupported_claim":
+          // nối thêm câu dẫn chứng
+          return `${innerText}. ${issue.suggestion}`
+        case "logical_jump":
+          // thêm câu nối logic
+          return `${innerText}. ${issue.suggestion}`
+        case "contradiction":
+          // chỉnh lại bằng phiên bản gợi ý
+          return issue.suggestion
+        default:
+          return innerText
+      }
+    }
+
+    const replacement = makeReplacement()
+
+    html = html.replace(spanRegex, replacement)
+    editor.commands.setContent(html, false)
+    onContentChange?.(html)
+    onSuggestionAccept?.(issue.id)
+  }
+
+  // Expose method cho parent (CanvasPage) dùng
+  useImperativeHandle(
+    ref,
+    () => ({
+      applyIssueFix,
+    }),
+    [editor, onContentChange, onSuggestionAccept],
+  )
+
+  // Gắn highlight vào HTML khi có analysisActive
+  useEffect(() => {
+    if (!editor) return
+
+    // Bỏ hết highlight cũ (span.lg-issue) trước – regex tolerant hơn
+    const currentHTML = editor.getHTML()
+    const cleaned = currentHTML.replace(
+      /<span[^>]*class="[^"]*lg-issue[^"]*"[^>]*>([\s\S]*?)<\/span>/g,
+      "$1",
+    )
+
+    if (cleaned !== currentHTML) {
+      editor.commands.setContent(cleaned, false)
+    }
+
+    if (!analysisActive || !analysisIssues.length) {
+      return
+    }
+
+    let html = editor.getHTML()
+
+    // Sort để text dài thay trước, tránh lồng nhau
+    const sortedIssues = [...analysisIssues].sort(
+      (a, b) => (b.text?.length || 0) - (a.text?.length || 0),
+    )
+
+    sortedIssues.forEach(issue => {
+      if (!issue.text) return
+      const escaped = escapeRegExp(issue.text)
+      const label = issueTypeLabel[issue.type]
+      const style = issueTypeStyle[issue.type]
+      const regex = new RegExp(`(${escaped})`, "g")
+
+      // ❗ span này phải bắt đầu với `<span class="lg-issue...` để regex phía trên nhận ra
+      html = html.replace(
+        regex,
+        `<span class="lg-issue issue-highlight cursor-pointer rounded px-0.5" data-issue-id="${issue.id}" data-issue-type="${label}" style="${style}">$1</span>`,
       )
     })
 
-    if (cleanedContent !== currentContent) {
-      editor.commands.setContent(cleanedContent)
-      onContentChange?.(cleanedContent)
-    }
-    setReplacedWords(new Set())
-  }
+    editor.commands.setContent(html, false)
+  }, [analysisActive, analysisIssues, editor])
 
   if (!editor) {
     return null
@@ -267,57 +380,18 @@ export function RichTextEditor({
     setFontColor(value)
   }
 
-  const handleIssueClick = (issue: AnalysisIssue) => {
-    if (!issue.suggestion || !issue.text) return
+  // Auto-fix khi click vào đoạn gạch chân trong editor
+  const handleEditorClick = (e: any) => {
+    const target = (e.target as HTMLElement).closest(".lg-issue") as HTMLElement | null
+    if (!target) return
 
-    const currentContent = editor.getHTML()
-    const escapedText = issue.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    const newContent = currentContent.replace(
-      new RegExp(escapedText, "g"),
-      `<span class="bg-green-100 text-green-700 font-semibold animate-pulse">${issue.suggestion}</span>`,
-    )
+    const issueId = target.getAttribute("data-issue-id")
+    if (!issueId) return
 
-    editor.commands.setContent(newContent)
-    onContentChange?.(newContent)
+    const issue = analysisIssues.find(i => i.id === issueId)
+    if (!issue) return
 
-    const newReplacedWords = new Set(replacedWords)
-    newReplacedWords.add(issue.suggestion)
-    setReplacedWords(newReplacedWords)
-
-    setTimeout(() => {
-      if (!issue.text || !issue.suggestion) return
-      const escapedTextInner = issue.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      const finalContent = currentContent.replace(new RegExp(escapedTextInner, "g"), issue.suggestion)
-      editor.commands.setContent(finalContent)
-      onContentChange?.(finalContent)
-      onSuggestionAccept?.(issue.id)
-    }, 800)
-  }
-
-  const renderContentWithHighlights = () => {
-    if (!analysisActive || analysisIssues.length === 0) {
-      return null
-    }
-
-    let html = editor.getHTML()
-    const sortedIssues = [...analysisIssues].sort((a, b) => b.endPos - a.endPos)
-
-    sortedIssues.forEach(issue => {
-      if (!issue.text) return
-
-      const text = issue.text
-      const escapedText = text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-      const regex = new RegExp(`(${escapedText})`, "g")
-
-      const label = issueTypeLabels[issue.type] ?? "Issue"
-
-      html = html.replace(
-        regex,
-        `<span class="underline decoration-red-500 decoration-2 bg-red-100 cursor-pointer hover:bg-red-200 transition-all relative group px-0.5 rounded issue-highlight" data-issue-id="${issue.id}" data-issue-type="${label}">${text}<span class="invisible group-hover:visible absolute bottom-full left-0 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap z-50 pointer-events-none">${label}</span></span>`,
-      )
-    })
-
-    return html
+    applyIssueFix(issue)
   }
 
   return (
@@ -426,7 +500,7 @@ export function RichTextEditor({
               {Object.keys(fontSizes).map(size => (
                 <DropdownMenuItem
                   key={size}
-                  onClick={() => handleFontSizeChange(size as keyof typeof fontSizes)}
+                  onClick={() => handleFontSizeChange(size as FontSizeLabel)}
                 >
                   {size}
                 </DropdownMenuItem>
@@ -533,34 +607,19 @@ export function RichTextEditor({
 
       <CardContent className="p-6">
         <div
-          className={`min-h-[500px] p-4 rounded border focus-within:ring-2 ${
+          className={cn(
+            "min-h-[500px] p-4 rounded border focus-within:ring-2",
             analysisActive
               ? "bg-amber-50 border-amber-200 focus-within:ring-amber-300"
-              : "bg-white border-[rgba(55,50,47,0.12)] focus-within:ring-[#37322F]/20"
-          }`}
-          onClick={e => {
-            const target = e.target as HTMLElement
-            if (target.classList.contains("issue-highlight")) {
-              const issueId = target.getAttribute("data-issue-id")
-              if (issueId) {
-                const issue = analysisIssues.find(i => i.id === issueId)
-                if (issue) {
-                  handleIssueClick(issue)
-                }
-              }
-            }
-          }}
-        >
-          {analysisActive && analysisIssues.length > 0 ? (
-            <div
-              className="prose prose-sm max-w-none text-[#37322F]"
-              dangerouslySetInnerHTML={{ __html: renderContentWithHighlights() || editor.getHTML() }}
-            />
-          ) : (
-            <EditorContent editor={editor} className="prose prose-sm max-w-none" />
+              : "bg-white border-[rgba(55,50,47,0.12)] focus-within:ring-[#37322F]/20",
           )}
+          onClick={handleEditorClick}
+        >
+          <EditorContent editor={editor} className="prose prose-sm max-w-none text-[#37322F]" />
         </div>
       </CardContent>
     </Card>
   )
 }
+
+export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(InnerRichTextEditor)

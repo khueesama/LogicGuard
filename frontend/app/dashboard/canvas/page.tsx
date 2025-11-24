@@ -4,8 +4,12 @@ import { useState, useEffect, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useDocument } from "@/lib/document-context"
 import { Button } from "@/components/ui/button"
-import { Save, Download, ChevronLeft, Loader2, Check, Sparkles } from "lucide-react"
-import { RichTextEditor, type AnalysisIssue } from "@/components/rich-text-editor"
+import { Save, Download, ChevronLeft, Loader2, Check, Sparkles, X } from "lucide-react"
+import {
+  RichTextEditor,
+  type AnalysisIssue,
+  type RichTextEditorHandle,
+} from "@/components/rich-text-editor"
 import { ContextSetup } from "@/components/context-setup"
 import { AnalysisIssuesOverlay } from "@/components/analysis-issues-overlay"
 import { DocumentsAPI, EnhancedGoalsAPI } from "@/lib/api-service"
@@ -19,26 +23,35 @@ interface ContextDataPayload {
   goal: GoalDetailResponse
 }
 
-// Item trả về từ backend unified /logic-checks/undefined-terms
-interface LogicIssueItem {
-  id?: string
-  type?: AnalysisIssue["type"] | string
-  text?: string
-  term?: string
-  reason?: string
-  suggestion?: string
-  start_pos?: number
-  end_pos?: number
-}
-
 interface LogicAnalysisAPIResponse {
-  success?: boolean
-  content?: string
-  context?: any
-  total_terms_found?: number
-  total_undefined?: number
+  analysis_metadata?: any
+  contradictions?: {
+    total_found: number
+    items: any[]
+  }
+  undefined_terms?: {
+    total_found: number
+    items: any[]
+  }
+  unsupported_claims?: {
+    total_found: number
+    items: any[]
+  }
+  logical_jumps?: {
+    total_found: number
+    items: any[]
+  }
+  spelling_errors?: {
+    total_found: number
+    items: any[]
+  }
+  summary?: {
+    total_issues: number
+    critical_issues: number
+    document_quality_score: number
+    key_recommendations: string[]
+  }
   metadata?: Record<string, any>
-  items?: LogicIssueItem[]
 }
 
 export default function CanvasPage() {
@@ -58,7 +71,10 @@ export default function CanvasPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisIssues, setAnalysisIssues] = useState<AnalysisIssue[]>([])
   const [appliedSuggestions, setAppliedSuggestions] = useState<string[]>([])
+  const [showAnalysisToast, setShowAnalysisToast] = useState(false)
+
   const initialContentRef = useRef<string>("")
+  const editorRef = useRef<RichTextEditorHandle | null>(null)
 
   const docId = searchParams?.get("docId") ?? selectedDocumentId ?? null
 
@@ -92,7 +108,6 @@ export default function CanvasPage() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload)
   }, [hasUnsavedChanges])
 
-  // Intercept router navigation
   const handleNavigation = (path: string) => {
     if (hasUnsavedChanges) {
       const confirmed = window.confirm(
@@ -208,7 +223,7 @@ export default function CanvasPage() {
   }
 
   const handleAnalyze = async () => {
-    // Nếu đang bật thì tắt phân tích, clear issues
+    // nếu đang bật thì tắt
     if (analysisActive) {
       setAnalysisIssues([])
       setAnalysisActive(false)
@@ -216,13 +231,12 @@ export default function CanvasPage() {
       return
     }
 
-    // Bật chế độ phân tích
     setAnalysisActive(true)
     setIsAnalyzing(true)
     setError(null)
+    setShowAnalysisToast(false)
 
     try {
-      // Lấy content hiện tại trong editor
       const content = editorContent || currentDoc?.content || ""
 
       if (!content.trim()) {
@@ -233,7 +247,6 @@ export default function CanvasPage() {
         return
       }
 
-      // Lấy token giống cách login đang dùng
       let token: string | null = null
 
       if (typeof window !== "undefined") {
@@ -256,7 +269,6 @@ export default function CanvasPage() {
         return
       }
 
-      // Context đơn giản; sau này có thể dùng currentGoal để enrich thêm
       const mainGoalTitle = currentGoal
         ? "Analyze document for current goal"
         : "Analyze document for logical issues"
@@ -270,7 +282,7 @@ export default function CanvasPage() {
 
       const baseUrl = getApiBaseUrlWithoutSuffix()
 
-      const res = await fetch(`${baseUrl}/api/logic-checks/undefined-terms`, {
+      const res = await fetch(`${baseUrl}/api/logic-checks/analyze`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -280,6 +292,8 @@ export default function CanvasPage() {
         body: JSON.stringify({
           context: contextPayload,
           content,
+          language: "vi", // hoặc "en" tuỳ nội dung
+          mode: "fast",
         }),
       })
 
@@ -304,21 +318,85 @@ export default function CanvasPage() {
       }
 
       const data: LogicAnalysisAPIResponse = await res.json()
-      const items: LogicIssueItem[] = data.items ?? []
 
-      const mapped: AnalysisIssue[] = items.map((item, index) => ({
-        id: item.id ?? String(index + 1),
-        type: (item.type as AnalysisIssue["type"]) || "clarity_issue",
-        startPos: item.start_pos ?? 0,
-        endPos: item.end_pos ?? 0,
-        text: item.text || item.term || "",
-        message: item.reason || "",
-        suggestion: item.suggestion || "",
-      }))
+      const spellingItems = data.spelling_errors?.items ?? []
+      const undefinedItems = data.undefined_terms?.items ?? []
+      const unsupportedItems = data.unsupported_claims?.items ?? []
+      const jumpsItems = data.logical_jumps?.items ?? []
+      const contraItems = data.contradictions?.items ?? []
+
+      const mapped: AnalysisIssue[] = []
+
+      // 1. Spelling
+      spellingItems.forEach((it: any, idx: number) => {
+        mapped.push({
+          id: `spell_${idx + 1}`,
+          type: "spelling_error",
+          startPos: it.start_pos ?? 0,
+          endPos: it.end_pos ?? 0,
+          text: it.original ?? "",
+          message: it.reason ?? "",
+          suggestion: it.suggested ?? "",
+        })
+      })
+
+      // 2. Undefined terms
+      undefinedItems.forEach((it: any, idx: number) => {
+        mapped.push({
+          id: `undef_${idx + 1}`,
+          type: "undefined_term",
+          startPos: 0,
+          endPos: 0,
+          text: it.term ?? it.text ?? "",
+          message: it.reason ?? "",
+          suggestion: it.suggestion ?? "",
+        })
+      })
+
+      // 3. Unsupported claims
+      unsupportedItems.forEach((it: any, idx: number) => {
+        mapped.push({
+          id: `claim_${idx + 1}`,
+          type: "unsupported_claim",
+          startPos: 0,
+          endPos: 0,
+          text: it.claim ?? it.text ?? "",
+          message: it.reason ?? "",
+          suggestion: it.suggestion ?? "",
+        })
+      })
+
+      // 4. Logical jumps
+      jumpsItems.forEach((it: any, idx: number) => {
+        mapped.push({
+          id: `jump_${idx + 1}`,
+          type: "logical_jump",
+          startPos: 0,
+          endPos: 0,
+          text: `${it.from_paragraph} → ${it.to_paragraph}`,
+          message: it.explanation ?? "",
+          suggestion: it.suggestion ?? "",
+        })
+      })
+
+      // 5. Contradictions
+      contraItems.forEach((it: any, idx: number) => {
+        mapped.push({
+          id: `contra_${idx + 1}`,
+          type: "contradiction",
+          startPos: 0,
+          endPos: 0,
+          text: `${it.sentence1 ?? ""} ↔ ${it.sentence2 ?? ""}`,
+          message: it.explanation ?? "",
+          suggestion: it.suggestion ?? "",
+        })
+      })
 
       console.log("[Canvas] mapped issues:", mapped.length)
       setAnalysisIssues(mapped)
       setIsAnalyzing(false)
+      setShowAnalysisToast(true)
+      setTimeout(() => setShowAnalysisToast(false), 2000)
     } catch (err: unknown) {
       console.error("[Canvas] Analysis failed:", err)
       if (err instanceof Error) {
@@ -332,13 +410,15 @@ export default function CanvasPage() {
     }
   }
 
+  // ✅ GIỜ: click bên Issues Found sẽ gọi editor.applyIssueFix(issue)
   const handleSuggestionClick = (issue: AnalysisIssue) => {
-    setAnalysisIssues(analysisIssues.filter(i => i.id !== issue.id))
-    setAppliedSuggestions([...appliedSuggestions, issue.id])
+    editorRef.current?.applyIssueFix(issue)
   }
 
+  // Được gọi từ RichTextEditor sau khi đã sửa xong trong content
   const handleSuggestionAccept = (issueId: string) => {
-    console.log("[Canvas] Suggestion accepted:", issueId)
+    setAppliedSuggestions(prev => [...prev, issueId])
+    setAnalysisIssues(prev => prev.filter(i => i.id !== issueId))
   }
 
   if (!docId) {
@@ -382,6 +462,25 @@ export default function CanvasPage() {
         </div>
       )}
 
+      {/* Toast thông báo đã phân tích xong */}
+      {showAnalysisToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-start gap-3 rounded-lg border bg-white px-4 py-3 shadow-lg text-sm max-w-sm">
+          <div className="mt-0.5">
+            <Sparkles className="h-4 w-4 text-emerald-600" />
+          </div>
+          <div className="flex-1">
+            <p className="font-medium text-[#37322F]">Phân tích hoàn tất</p>
+            
+          </div>
+          <button
+            className="ml-2 text-gray-400 hover:text-gray-600"
+            onClick={() => setShowAnalysisToast(false)}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-semibold text-[#37322F] mb-2">Writing Canvas</h1>
@@ -408,7 +507,9 @@ export default function CanvasPage() {
           <Button
             onClick={handleAnalyze}
             disabled={isAnalyzing}
-            className={`gap-2 ${analysisActive ? 'bg-blue-600 hover:bg-blue-700' : 'bg-[#37322F] hover:bg-[#37322F]/90'}`}
+            className={`gap-2 ${
+              analysisActive ? "bg-blue-600 hover:bg-blue-700" : "bg-[#37322F] hover:bg-[#37322F]/90"
+            }`}
           >
             {isAnalyzing ? (
               <>
@@ -418,7 +519,7 @@ export default function CanvasPage() {
             ) : (
               <>
                 <Sparkles className="h-4 w-4" />
-                {analysisActive ? 'Analysis Active' : 'Analyze'}
+                {analysisActive ? "Analysis Active" : "Analyze"}
               </>
             )}
           </Button>
@@ -432,6 +533,7 @@ export default function CanvasPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <RichTextEditor
+            ref={editorRef}
             onContentChange={setEditorContent}
             initialContent={currentDoc?.content || ""}
             analysisActive={analysisActive}
@@ -444,9 +546,7 @@ export default function CanvasPage() {
           {analysisActive && analysisIssues.length > 0 ? (
             <AnalysisIssuesOverlay issues={analysisIssues} onSuggestionClick={handleSuggestionClick} />
           ) : (
-            <>
-              <ContextSetup goal={currentGoal} onApply={handleContextApply} />
-            </>
+            <ContextSetup goal={currentGoal} onApply={handleContextApply} />
           )}
         </div>
       </div>

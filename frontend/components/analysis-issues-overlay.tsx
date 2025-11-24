@@ -1,52 +1,75 @@
 "use client"
 
-import { Card } from "@/components/ui/card"
-import { AnalysisIssue } from "@/components/rich-text-editor"
+import React from "react"
+import type { AnalysisIssue } from "@/components/rich-text-editor"
+import { cn } from "@/lib/utils"
 
-interface AnalysisIssuesOverlayProps {
+interface Props {
   issues: AnalysisIssue[]
-  onSuggestionClick: (issue: AnalysisIssue) => void
+  onSuggestionClick?: (issue: AnalysisIssue) => void
 }
 
-const issueTypeLabels: Record<AnalysisIssue["type"], string> = {
-  logic_contradiction: "Logic Contradiction",
-  logic_gap: "Logic Gap",
-  weak_evidence: "Weak Evidence",
-  clarity_issue: "Clarity Issue",
+const typeLabel: Record<AnalysisIssue["type"], string> = {
+  spelling_error: "Spelling Error",
   undefined_term: "Undefined Term",
+  unsupported_claim: "Unsupported Claim",
+  logical_jump: "Logical Jump",
+  contradiction: "Contradiction",
 }
 
-export function AnalysisIssuesOverlay({ issues, onSuggestionClick }: AnalysisIssuesOverlayProps) {
-  if (issues.length === 0) return null
+const typeBadgeClass: Record<AnalysisIssue["type"], string> = {
+  spelling_error: "bg-yellow-100 text-yellow-800",
+  undefined_term: "bg-purple-100 text-purple-800",
+  unsupported_claim: "bg-rose-100 text-rose-800",
+  logical_jump: "bg-blue-100 text-blue-800",
+  contradiction: "bg-orange-100 text-orange-800",
+}
 
+export function AnalysisIssuesOverlay({ issues, onSuggestionClick }: Props) {
   return (
-    <Card className="bg-[#F7F5F3] border-[rgba(55,50,47,0.12)] p-4 space-y-3 sticky top-0">
-      <h3 className="font-bold text-[#37322F] text-sm">Issues Found</h3>
-      <div className="space-y-2 max-h-96 overflow-y-auto">
+    <div className="border border-[rgba(55,50,47,0.12)] rounded-xl bg-white h-full flex flex-col">
+      {/* Header luôn cố định, không cuộn */}
+      <div className="px-4 pt-4 pb-3 border-b border-[rgba(55,50,47,0.12)] sticky top-0 bg-white z-10">
+        <h2 className="text-sm font-semibold text-[#37322F]">Issues Found</h2>
+        <p className="text-xs text-[#807B78] mt-1">
+          Bạn có thể click vào lỗi bên dưới hoặc click trực tiếp vào đoạn gạch chân trong văn bản để tự động sửa.
+        </p>
+      </div>
+
+      {/* Danh sách lỗi cuộn bên dưới */}
+      <div className="px-4 pb-4 pt-2 space-y-3 overflow-y-auto max-h-[540px]">
         {issues.map(issue => (
           <button
             key={issue.id}
             type="button"
-            className="w-full text-left bg-white p-3 rounded border border-[rgba(55,50,47,0.12)] hover:bg-[#FAF9F7] transition-colors"
-            onClick={() => onSuggestionClick(issue)}
+            onClick={() => onSuggestionClick?.(issue)}
+            className="w-full text-left rounded-lg border border-[rgba(55,50,47,0.12)] px-3 py-2.5 hover:bg-[rgba(55,50,47,0.02)] transition"
           >
-            <div className="flex items-start gap-2">
-              <span className="inline-block px-2 py-0.5 text-xs font-semibold bg-red-100 text-red-700 rounded">
-                {issueTypeLabels[issue.type]}
+            <div className="flex items-center justify-between gap-2 mb-1.5">
+              <span
+                className={cn(
+                  "inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
+                  typeBadgeClass[issue.type],
+                )}
+              >
+                {typeLabel[issue.type]}
               </span>
+              <span className="text-[11px] text-[#A39D9A]">Click để sửa</span>
             </div>
-            <p className="text-xs text-[#37322F] mt-2">
-              <span className="text-red-700 font-semibold">{issue.text}</span>
-            </p>
+            <p className="text-xs font-medium text-[#37322F] line-clamp-2">{issue.text}</p>
             {issue.suggestion && (
-              <p className="text-xs text-green-700 mt-2">
-                Suggestion: <span className="font-semibold text-green-700">{issue.suggestion}</span>
+              <p className="mt-1.5 text-[11px] text-[#605A57]">
+                <span className="font-semibold">Suggestion:&nbsp;</span>
+                {issue.suggestion}
               </p>
             )}
-            <p className="text-xs text-[#605A57] mt-2">{issue.message}</p>
           </button>
         ))}
+
+        {issues.length === 0 && (
+          <p className="text-xs text-[#807B78] italic">Không có lỗi nào được phát hiện.</p>
+        )}
       </div>
-    </Card>
+    </div>
   )
 }
