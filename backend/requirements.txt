@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 # FastAPI
+=======
+# FastAPI and server
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
 python-multipart==0.0.12
@@ -9,16 +13,25 @@ asyncpg==0.30.0
 psycopg2-binary==2.9.10
 alembic==1.13.3
 
+<<<<<<< HEAD
 # Auth
+=======
+# Authentication
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 python-dotenv==1.0.1
 
+<<<<<<< HEAD
 # Validation
+=======
+# Data validation
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 pydantic==2.10.0
 pydantic-settings==2.6.0
 email-validator==2.2.0
 
+<<<<<<< HEAD
 # Utils
 beautifulsoup4==4.12.3
 
@@ -28,3 +41,20 @@ google-generativeai
 # Optional
 numpy
 scikit-learn
+=======
+beautifulsoup4==4.12.3
+
+
+# for ai
+transformers 
+torch 
+numpy
+sentence-transformers 
+faiss-cpu
+google-generativeai
+datasets 
+scikit-learn  
+pandas  
+accelerate
+dill  # Required by datasets and multiprocessing  
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da

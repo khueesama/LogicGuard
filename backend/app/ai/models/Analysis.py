@@ -140,8 +140,13 @@ RESPONSE_SCHEMA: Dict[str, Any] = {
                     "items": {
                         "type": "object",
                         "properties": {
+<<<<<<< HEAD
                             "from_location": {"type": "string"},
                             "to_location": {"type": "string"},
+=======
+                            "from_paragraph": {"type": "integer"},
+                            "to_paragraph": {"type": "integer"},
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
                             "from_paragraph_summary": {"type": "string"},
                             "to_paragraph_summary": {"type": "string"},
                             "coherence_score": {"type": "number"},
@@ -151,8 +156,13 @@ RESPONSE_SCHEMA: Dict[str, Any] = {
                             "suggestion": {"type": "string"},
                         },
                         "required": [
+<<<<<<< HEAD
                             "from_location",
                             "to_location",
+=======
+                            "from_paragraph",
+                            "to_paragraph",
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
                             "coherence_score",
                             "explanation",
                         ],
@@ -421,6 +431,7 @@ def analyze_document(
                     result["spelling_errors"].get("items", []) or []
                 )
 
+<<<<<<< HEAD
         # ======================================================================
         # -------- 4.5) BỘ LỌC RANH GIỚI: Unsupported Claims vs Contradictions
         # Loại bỏ Unsupported Claim nếu nó đã nằm trong Contradictions
@@ -454,6 +465,8 @@ def analyze_document(
             result["unsupported_claims"]["total_found"] = len(valid_claims)
         # ======================================================================
 
+=======
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
         # -------- 5) MERGE lỗi chính tả rule-based vào spelling_errors chính --------
         try:
             rb_corrections = norm.spelling_corrections or []
@@ -464,12 +477,31 @@ def analyze_document(
             sp_block = result.get("spelling_errors") or {"total_found": 0, "items": []}
             items = sp_block.get("items") or []
 
+<<<<<<< HEAD
             # Đã sửa: Chỉ lọc trùng dựa trên chữ gốc (original)
             seen_keys = {(it.get("original") or "").lower() for it in items}
 
             for corr in rb_corrections:
                 original_text = (corr.get("original") or "").lower()
                 if original_text in seen_keys:
+=======
+            seen_keys = {
+                (
+                    it.get("start_pos"),
+                    it.get("end_pos"),
+                    (it.get("original") or "").lower(),
+                )
+                for it in items
+            }
+
+            for corr in rb_corrections:
+                key = (
+                    corr.get("start_pos"),
+                    corr.get("end_pos"),
+                    (corr.get("original") or "").lower(),
+                )
+                if key in seen_keys:
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
                     continue
 
                 items.append(
@@ -482,7 +514,11 @@ def analyze_document(
                         "reason": corr.get("reason", "rule_based_detection"),
                     }
                 )
+<<<<<<< HEAD
                 seen_keys.add(original_text)
+=======
+                seen_keys.add(key)
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 
             sp_block["items"] = items
             sp_block["total_found"] = len(items)
@@ -579,8 +615,13 @@ def get_analysis_summary(analysis_result: Dict[str, Any]) -> str:
     if jumps.get("items"):
         for item in jumps["items"]:
             lines.append(
+<<<<<<< HEAD
                 f"  - {item.get('from_location', '?')} → "
                 f"{item.get('to_location', '?')} "
+=======
+                f"  - Paragraph {item.get('from_paragraph', '?')} → "
+                f"{item.get('to_paragraph', '?')} "
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
                 f"(coherence: {item.get('coherence_score', 0)})"
             )
 
@@ -601,4 +642,8 @@ def get_analysis_summary(analysis_result: Dict[str, Any]) -> str:
             lines.append(f"  {i}. {rec}")
 
     lines.append("\n" + "=" * 80)
+<<<<<<< HEAD
     return "\n".join(lines)
+=======
+    return "\n".join(lines)
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da

@@ -67,7 +67,11 @@ BASIC_REPLACEMENTS_VI: Dict[str, str] = {
     "cong nghe": "công nghệ",
     "khoa hoc du lieu": "khoa học dữ liệu",
 
+<<<<<<< HEAD
     # Các lỗi logic / ví dụ đang test
+=======
+    # Các lỗi bạn đang test trong ví dụ logic
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
     "sức khẻ": "sức khỏe",
     "bằng trứng khoa học": "bằng chứng khoa học",
     "nướt tăng lực": "nước tăng lực",
@@ -80,11 +84,14 @@ BASIC_REPLACEMENTS_VI: Dict[str, str] = {
     "cơ thẻ": "cơ thể",
     "tái tạo trỉ": "tái tạo chỉ",
     "nghiên cứ": "nghiên cứu",
+<<<<<<< HEAD
     
     # BỔ SUNG LỖI MỚI Ở ĐÂY:
     "phát chiển": "phát triển",
     "giãi quyết": "giải quyết",
     "châm trước": "châm chước",
+=======
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 }
 
 
@@ -171,4 +178,8 @@ def normalize_text(text: str, language: str = "vi") -> NormalizationResult:
         spelling_corrections=basic.spelling_corrections,
         term_mappings=basic.term_mappings,
         mappings=basic.mappings,
+<<<<<<< HEAD
     )
+=======
+    )
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da

@@ -422,10 +422,13 @@ STEP 2 – UNSUPPORTED CLAIMS
 After spelling is identified:
 - Detect claims that require evidence but have no adequate support nearby.
 
+<<<<<<< HEAD
 IMPORTANT BOUNDARY RULES (MUTUAL EXCLUSIVITY):
 - If a claim contains a highly illogical leap or non-sequitur (e.g., "A leads to B" but they are completely unrelated), IGNORE it here and flag it in STEP 5 (Logical Jumps).
 - If a claim directly contradicts another statement in the text, prioritize flagging it in STEP 4 (Contradictions) rather than here.
 
+=======
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 Claims:
 - Statements about facts, predictions, comparisons, causal links, or strong opinions presented as facts.
 
@@ -484,6 +487,7 @@ For each contradiction item:
 ---------------------------
 STEP 5 – LOGICAL JUMPS (LOWEST PRIORITY)
 
+<<<<<<< HEAD
 Finally, check transitions between SENTENCES or PARAGRAPHS.
 
 Logical jump:
@@ -499,6 +503,23 @@ For each item:
 - flag: short label, e.g., "abrupt_topic_shift", "missing_explanation", "illogical_cause_effect".
 - severity: "high" | "medium" | "low".
 - explanation: why the jump feels abrupt or illogical.
+=======
+Finally, check transitions between paragraphs.
+
+Logical jump:
+- The topic or reasoning changes abruptly without a clear bridge,
+  explanation, or justification.
+
+For each item:
+- from_paragraph: 1-based index of source paragraph.
+- to_paragraph: 1-based index of target paragraph.
+- from_paragraph_summary: 1–2 sentence summary of source paragraph.
+- to_paragraph_summary: 1–2 sentence summary of target paragraph.
+- coherence_score: float 0–1 (1 = very coherent, 0 = no connection).
+- flag: short label, e.g., "abrupt_topic_shift", "missing_explanation".
+- severity: "high" | "medium" | "low".
+- explanation: why the jump feels abrupt.
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 - suggestion: short hint on how to add a bridge or restructure.
 
 Only include logical_jumps items where coherence_score < 0.7.
@@ -566,10 +587,17 @@ Return JSON with exactly this structure and field names:
     "total_found": <int>,
     "items": [
       {{
+<<<<<<< HEAD
         "from_location": "Sentence X / Paragraph Y",
         "to_location": "Sentence Z / Paragraph W",
         "from_paragraph_summary": "Short summary of source...",
         "to_paragraph_summary": "Short summary of target...",
+=======
+        "from_paragraph": 5,
+        "to_paragraph": 6,
+        "from_paragraph_summary": "Short summary of paragraph 5...",
+        "to_paragraph_summary": "Short summary of paragraph 6...",
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
         "coherence_score": 0.32,
         "flag": "abrupt_topic_shift",
         "severity": "high|medium|low",
@@ -736,10 +764,16 @@ Bước này phải thực hiện TRƯỚC. Các bước sau KHÔNG được coi
 ---------------------------
 BƯỚC 2 – LUẬN ĐIỂM THIẾU CHỨNG CỨ (UNSUPPORTED CLAIMS)
 
+<<<<<<< HEAD
 Sau khi xử lý chính tả, bạn tìm các câu khẳng định thiếu chứng cứ.
 LƯU Ý QUAN TRỌNG VỀ RANH GIỚI:
 - Nếu một câu chứa lập luận nhảy cóc quá xa, phi logic (ví dụ: "A dẫn đến B" nhưng không liên quan), hãy BỎ QUA ở bước này và để dành cho BƯỚC 5 (Nhảy logic).
 - Nếu một câu có ý nghĩa mâu thuẫn trực tiếp với một câu khác, hãy ưu tiên xếp vào BƯỚC 4 (Mâu thuẫn).
+=======
+Sau khi xử lý chính tả, bạn tìm:
+- Các câu/mệnh đề khẳng định điều gì đó (sự thật, xu hướng, hiệu quả, dự đoán, so sánh, quan hệ nhân quả)
+  mà KHÔNG có dữ liệu, ví dụ, trích dẫn hoặc lập luận đủ mạnh.
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 
 Một luận điểm chỉ được xem là CÓ CHỨNG CỨ nếu:
 - Có bằng chứng trong cùng câu, HOẶC
@@ -796,6 +830,7 @@ Mỗi item:
 ---------------------------
 BƯỚC 5 – NHẢY LOGIC (LOGICAL JUMPS)
 
+<<<<<<< HEAD
 Cuối cùng, xem xét mạch nối giữa các CÂU hoặc các ĐOẠN.
 
 Nhảy logic xảy ra khi:
@@ -809,6 +844,21 @@ Mỗi item:
 - to_paragraph_summary: Tóm tắt 1-2 câu ý đích.
 - coherence_score: số thực 0–1 (1 = rất mạch lạc, 0 = hầu như không liên quan).
 - flag: nhãn ngắn, ví dụ "abrupt_topic_shift", "missing_explanation", "illogical_cause_effect".
+=======
+Cuối cùng, xem xét mạch nối giữa các đoạn.
+
+Nhảy logic xảy ra khi:
+- Chủ đề hoặc lập luận đổi hướng đột ngột,
+- Thiếu câu nối hoặc giải thích tại sao chuyển ý.
+
+Mỗi item:
+- from_paragraph: số đoạn nguồn (bắt đầu từ 1).
+- to_paragraph: số đoạn đích (bắt đầu từ 1).
+- from_paragraph_summary: tóm tắt ngắn 1–2 câu nội dung đoạn nguồn.
+- to_paragraph_summary: tóm tắt ngắn 1–2 câu nội dung đoạn đích.
+- coherence_score: số thực 0–1 (1 = rất mạch lạc, 0 = hầu như không liên quan).
+- flag: nhãn ngắn, ví dụ "abrupt_topic_shift", "missing_explanation".
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 - severity: "high" | "medium" | "low".
 - explanation: vì sao xem đây là nhảy logic.
 - suggestion: gợi ý ngắn để thêm câu chuyển ý hoặc cấu trúc lại.
@@ -845,6 +895,7 @@ Bạn PHẢI trả về JSON với cấu trúc:
 
   "logical_jumps": {{
     "total_found": <số nguyên>,
+<<<<<<< HEAD
     "items": [
       {{
         "from_location": "Câu X / Đoạn Y",
@@ -858,6 +909,9 @@ Bạn PHẢI trả về JSON với cấu trúc:
         "suggestion": "Gợi ý sửa."
       }}
     ]
+=======
+    "items": [ ... ]
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
   }},
 
   "spelling_errors": {{
@@ -888,4 +942,8 @@ Trong đó:
 Trả về DUY NHẤT object JSON này.
 KHÔNG dùng markdown, KHÔNG giải thích ngoài JSON.
 """
+<<<<<<< HEAD
     return prompt
+=======
+    return prompt
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
