@@ -7,6 +7,16 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { PredefinedOptionsAPI, EnhancedGoalsAPI } from "@/lib/api-service"
 import type { PredefinedWritingType, GoalDetailResponse } from "@/lib/api-service"
 
+// Định nghĩa Type mở rộng để TypeScript không báo lỗi thiếu properties
+type ExtendedGoal = GoalDetailResponse & {
+  writing_type_id?: string;
+  writing_type_custom?: string;
+  updated_at?: string;
+  rubric_text?: string;
+  criteria?: Array<{ label: string }>;
+  key_constraints?: string[];
+}
+
 const DEFAULT_WRITING_TYPES: PredefinedWritingType[] = [
   {
     id: "academic_essay",
@@ -125,7 +135,7 @@ export function ContextSetup({ goal, onApply }: ContextSetupProps) {
   useEffect(() => {
     setCurrentGoal(goal ?? null)
     setHydratedGoalVersion(null)
-  }, [goal?.id])
+  }, [goal])
 
   useEffect(() => {
     async function loadWritingTypes() {
@@ -134,6 +144,7 @@ export function ContextSetup({ goal, onApply }: ContextSetupProps) {
         const types = await PredefinedOptionsAPI.getWritingTypes()
         setWritingTypes(types.length ? types : DEFAULT_WRITING_TYPES)
       } catch (err) {
+        console.error(err)
         setError("Failed to load writing types. Using fallback options.")
         setWritingTypes(DEFAULT_WRITING_TYPES)
       } finally {
@@ -146,14 +157,17 @@ export function ContextSetup({ goal, onApply }: ContextSetupProps) {
 
   const hydrateFromGoal = useCallback(
     (goalData: GoalDetailResponse) => {
+      // Sử dụng ExtendedGoal thay vì any
+      const extGoal = goalData as ExtendedGoal 
+
       const resolvedType = (() => {
-        if (goalData.writing_type_id) {
-          return writingTypes.find((t) => t.id === goalData.writing_type_id) ?? null
+        if (extGoal.writing_type_id) {
+          return writingTypes.find((t) => t.id === extGoal.writing_type_id) ?? null
         }
-        if (goalData.writing_type_custom) {
-          const normalized = goalData.writing_type_custom.toLowerCase()
+        if (extGoal.writing_type_custom) {
+          const normalized = extGoal.writing_type_custom.toLowerCase()
           return (
-            writingTypes.find((t) => t.id === goalData.writing_type_custom) ??
+            writingTypes.find((t) => t.id === extGoal.writing_type_custom) ??
             writingTypes.find((t) => t.name.toLowerCase() === normalized) ??
             null
           )
@@ -170,15 +184,15 @@ export function ContextSetup({ goal, onApply }: ContextSetupProps) {
         setSelectedType(fallbackType)
       }
 
-      const resolvedName = resolvedType?.name || goalData.writing_type_custom || ""
+      const resolvedName = resolvedType?.name || extGoal.writing_type_custom || ""
       setPersistedWritingTypeName(resolvedName)
 
-      const rubricValues = goalData.criteria?.length
-        ? goalData.criteria.map((c) => c.label)
-        : parseRubricText(goalData.rubric_text)
+      const rubricValues = extGoal.criteria?.length
+        ? extGoal.criteria.map((c) => c.label)
+        : parseRubricText(extGoal.rubric_text)
 
       const hydratedRubrics = rubricValues.length ? rubricValues : resolvedType?.default_rubrics ?? []
-      const hydratedConstraints = goalData.key_constraints ?? resolvedType?.default_constraints ?? []
+      const hydratedConstraints = extGoal.key_constraints ?? resolvedType?.default_constraints ?? []
 
       setSelectedRubrics(hydratedRubrics)
       setSelectedConstraints(hydratedConstraints)
@@ -201,7 +215,10 @@ export function ContextSetup({ goal, onApply }: ContextSetupProps) {
       return
     }
 
-    const versionKey = `${currentGoal.id}:${currentGoal.updated_at ?? ""}:${currentGoal.writing_type_id ?? ""}:${currentGoal.writing_type_custom ?? ""}`
+    // Sử dụng ExtendedGoal thay vì any
+    const extGoal = currentGoal as ExtendedGoal
+    const versionKey = `${currentGoal.id}:${extGoal.updated_at ?? ""}:${extGoal.writing_type_id ?? ""}:${extGoal.writing_type_custom ?? ""}`
+    
     if (hydratedGoalVersion === versionKey) {
       return
     }
@@ -332,7 +349,10 @@ export function ContextSetup({ goal, onApply }: ContextSetupProps) {
     try {
       const maybeUuid = selectedTypeId && isUuid(selectedTypeId)
       const writingTypeId = maybeUuid ? selectedTypeId : undefined
-      const writingTypeLabel = selectedType?.name || persistedWritingTypeName || currentGoal?.writing_type_custom || "Goal"
+      
+      // Sử dụng ExtendedGoal thay vì any
+      const extGoal = currentGoal as ExtendedGoal | null
+      const writingTypeLabel = selectedType?.name || persistedWritingTypeName || extGoal?.writing_type_custom || "Goal"
       const writingTypeCustomValue = selectedTypeId && !maybeUuid ? selectedTypeId : writingTypeLabel
 
       const payload = {
@@ -359,6 +379,7 @@ export function ContextSetup({ goal, onApply }: ContextSetupProps) {
         goal: savedGoal,
       })
     } catch (err) {
+      console.error(err)
       setError(err instanceof Error ? err.message : "Failed to save goal. Please try again.")
     } finally {
       setLoading(false)
