@@ -373,7 +373,11 @@ export default function CanvasPage() {
           type: "logical_jump",
           startPos: 0,
           endPos: 0,
+<<<<<<< HEAD
           text: `${it.from_location} → ${it.to_location}`,
+=======
+          text: `${it.from_paragraph} → ${it.to_paragraph}`,
+>>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
           message: it.explanation ?? "",
           suggestion: it.suggestion ?? "",
         })
