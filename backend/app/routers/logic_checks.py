@@ -12,11 +12,7 @@ from app.schemas.logic_checks import (
     UnsupportedClaimsRequest,
     UnsupportedClaimsResponse,
 )
-<<<<<<< HEAD
-
-=======
 from app.ai.models.contradictions import check_contradictions
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 from app.ai.models.Analysis import analyze_document
 
 router = APIRouter(prefix="/logic-checks", tags=["Logic Checks"])
