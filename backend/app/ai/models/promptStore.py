@@ -942,8 +942,5 @@ Trong đó:
 Trả về DUY NHẤT object JSON này.
 KHÔNG dùng markdown, KHÔNG giải thích ngoài JSON.
 """
-<<<<<<< HEAD
     return prompt
-=======
-    return prompt
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
+
