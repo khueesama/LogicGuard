@@ -422,13 +422,10 @@ STEP 2 – UNSUPPORTED CLAIMS
 After spelling is identified:
 - Detect claims that require evidence but have no adequate support nearby.
 
-<<<<<<< HEAD
 IMPORTANT BOUNDARY RULES (MUTUAL EXCLUSIVITY):
 - If a claim contains a highly illogical leap or non-sequitur (e.g., "A leads to B" but they are completely unrelated), IGNORE it here and flag it in STEP 5 (Logical Jumps).
 - If a claim directly contradicts another statement in the text, prioritize flagging it in STEP 4 (Contradictions) rather than here.
 
-=======
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 Claims:
 - Statements about facts, predictions, comparisons, causal links, or strong opinions presented as facts.
 
@@ -487,7 +484,6 @@ For each contradiction item:
 ---------------------------
 STEP 5 – LOGICAL JUMPS (LOWEST PRIORITY)
 
-<<<<<<< HEAD
 Finally, check transitions between SENTENCES or PARAGRAPHS.
 
 Logical jump:
@@ -503,23 +499,6 @@ For each item:
 - flag: short label, e.g., "abrupt_topic_shift", "missing_explanation", "illogical_cause_effect".
 - severity: "high" | "medium" | "low".
 - explanation: why the jump feels abrupt or illogical.
-=======
-Finally, check transitions between paragraphs.
-
-Logical jump:
-- The topic or reasoning changes abruptly without a clear bridge,
-  explanation, or justification.
-
-For each item:
-- from_paragraph: 1-based index of source paragraph.
-- to_paragraph: 1-based index of target paragraph.
-- from_paragraph_summary: 1–2 sentence summary of source paragraph.
-- to_paragraph_summary: 1–2 sentence summary of target paragraph.
-- coherence_score: float 0–1 (1 = very coherent, 0 = no connection).
-- flag: short label, e.g., "abrupt_topic_shift", "missing_explanation".
-- severity: "high" | "medium" | "low".
-- explanation: why the jump feels abrupt.
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 - suggestion: short hint on how to add a bridge or restructure.
 
 Only include logical_jumps items where coherence_score < 0.7.
@@ -587,17 +566,10 @@ Return JSON with exactly this structure and field names:
     "total_found": <int>,
     "items": [
       {{
-<<<<<<< HEAD
         "from_location": "Sentence X / Paragraph Y",
         "to_location": "Sentence Z / Paragraph W",
         "from_paragraph_summary": "Short summary of source...",
         "to_paragraph_summary": "Short summary of target...",
-=======
-        "from_paragraph": 5,
-        "to_paragraph": 6,
-        "from_paragraph_summary": "Short summary of paragraph 5...",
-        "to_paragraph_summary": "Short summary of paragraph 6...",
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
         "coherence_score": 0.32,
         "flag": "abrupt_topic_shift",
         "severity": "high|medium|low",
@@ -649,20 +621,6 @@ Return ONLY this JSON object. No markdown, no extra text.
 # =======================================
 
 def prompt_analysis_vi(context: Dict[str, Any], content: str) -> str:
-    """
-    Unified Vietnamese prompt (A2) – 5 nhiệm vụ, với thứ tự ưu tiên:
-    1) Lỗi chính tả (spelling_errors – VI + EN trong văn bản)
-    2) Luận điểm thiếu chứng cứ (unsupported_claims)
-    3) Thuật ngữ chưa định nghĩa (undefined_terms)
-    4) Mâu thuẫn logic (contradictions)
-    5) Nhảy logic (logical_jumps)
-
-    Mục tiêu:
-    - Ưu tiên phát hiện lỗi chính tả chính xác, tránh nhầm với undefined_terms.
-    - Không hướng dẫn từng bước, chỉ trả JSON kết quả cuối.
-    - Hỗ trợ cả văn bản thuần VI và mixed VI + EN.
-    """
-
     writing_type = context.get("writing_type", "Văn bản")
     main_goal = context.get("main_goal", "")
     criteria = context.get("criteria", [])
@@ -680,37 +638,14 @@ def prompt_analysis_vi(context: Dict[str, Any], content: str) -> str:
     ctx_block = "\n".join(ctx_lines)
 
     prompt = f"""
-Bạn là LogicGuard – AI phân tích logic và cấu trúc cho các tài liệu {writing_type} (tiếng Việt, có thể xen tiếng Anh).
+Bạn là LogicGuard, một Biên tập viên và Chuyên gia Logic cực kỳ khắt khe, chuyên phân tích tài liệu {writing_type}.
+Nhiệm vụ của bạn là quét sạch mọi hạt sạn trong văn bản theo đúng 5 BƯỚC ƯU TIÊN sau. KHÔNG được phép bỏ sót.
 
-Bạn PHẢI phân tích văn bản theo 5 loại vấn đề, theo THỨ TỰ ƯU TIÊN sau:
-1) Lỗi chính tả (Spelling Errors – tiếng Việt + tiếng Anh)
-2) Luận điểm thiếu chứng cứ (Unsupported Claims)
-3) Thuật ngữ chưa định nghĩa (Undefined Terms)
-4) Mâu thuẫn logic (Contradictions)
-5) Nhảy logic (Logical Jumps)
-
-Bạn nhận được:
-- CONTEXT: thông tin nhiệm vụ viết.
-- CONTENT: toàn bộ văn bản gốc dạng chuỗi (có thể VI + EN xen lẫn).
-
-QUY TẮC CHUNG VỀ JSON:
-- Chỉ trả về DUY NHẤT một object JSON.
-- Không có markdown, không có giải thích ngoài JSON.
-- Mỗi phần phải tồn tại:
-    - analysis_metadata
-    - contradictions
-    - undefined_terms
-    - unsupported_claims
-    - logical_jumps
-    - spelling_errors
-    - summary
-- Nếu không có lỗi ở một loại, để:
-    - total_found = 0
-    - items = []
-
-QUY TẮC VỊ TRÍ (spelling_errors):
-- start_pos, end_pos là index ký tự 0-based trên chuỗi CONTENT gốc.
-- end_pos là exclusive, như Python slicing: content[start_pos:end_pos].
+QUY TẮC ĐẦU RA JSON TỐI THƯỢNG:
+- Trả về DUY NHẤT một object JSON khớp tuyệt đối với schema được cung cấp.
+- Không bọc trong Markdown (```json). Không giải thích dài dòng.
+- Vị trí (start_pos, end_pos) phải chính xác theo index ký tự (0-based) của văn bản gốc.
+- NGÔN NGỮ ĐẦU RA: Toàn bộ nội dung trong các trường reason, explanation, và suggestion BẮT BUỘC phải được viết bằng Tiếng Việt.
 
 ---------------------------
 NGỮ CẢNH
@@ -722,225 +657,29 @@ VĂN BẢN GỐC (CONTENT)
 {content}
 <<<KẾT THÚC VĂN BẢN>>>
 
-Mọi phân tích bên dưới PHẢI dựa trên chính xác chuỗi CONTENT này.
-
 ---------------------------
-BƯỚC 1 – LỖI CHÍNH TẢ (ƯU TIÊN CAO NHẤT)
+BƯỚC 1 – LỖI CHÍNH TẢ (QUÉT KỸ NHẤT)
+- Đóng vai một giáo viên ngữ văn khó tính. Quét toàn bộ văn bản để tìm các lỗi: gõ sai phím (typo), sai dấu, sai phụ âm/nguyên âm, hoặc lỗi ghép từ EN/VI.
+- VÍ DỤ CẦN BẮT: "phát chiển" -> "phát triển", "bèo vệ" -> "bảo vệ", "nghien cúu" -> "nghiên cứu".
+- BẮT BUỘC liệt kê tất cả các từ nghi ngờ sai chính tả. Tuyệt đối không được bỏ qua để nhường chỗ cho các lỗi khác.
+- Lưu ý: Không sửa tên riêng, tên thương hiệu (VD: Zindra, Gemini).
 
-Mục tiêu:
-- Tìm lỗi chính tả rõ ràng trong cả tiếng Việt và tiếng Anh.
-- Giảm nhiễu cho các bước sau (tránh nhầm typo thành thuật ngữ hoặc luận điểm).
-
-Hướng dẫn:
-- Đọc toàn văn bản, kiểm tra từ/cụm từ trong NGỮ CẢNH.
-- Ít nhất phải nhìn 1–3 từ TRƯỚC và 1–3 từ SAU để hiểu ngữ cảnh.
-- Nếu từ/cụm từ gần như chắc chắn là sai chính tả trong ngữ cảnh → gắn cờ lỗi.
-
-Ví dụ nên gắn cờ:
-- "compaeny" → "company" (EN)
-- "repoort" → "report" (EN)
-- "nghien cúu" → "nghiên cứu" (VI)
-- "cơ thễ" → "cơ thể" (VI)
-- "bằng trứng khoa học" → "bằng chứng khoa học" (VI)
-
-QUY TẮC QUAN TRỌNG:
-- KHÔNG sửa tên thương hiệu, tên riêng, tên sản phẩm/mô hình nếu có vẻ cố ý:
-  Ví dụ: "Zindra", "Tinh Vân Định Chuẩn", "Tâm Linh Omega".
-- Nếu không chắc ≥ 70% rằng từ đó sai → BỎ QUA, KHÔNG gắn cờ.
-- Với câu VI + EN xen lẫn, chỉ đánh lỗi chính tả nếu:
-  - Từ đó sai trong ngôn ngữ của nó (EN/VI), VÀ
-  - Khi sửa, cụm trở nên tự nhiên hơn rõ rệt.
-
-Mỗi item trong spelling_errors:
-- original: chuỗi gốc bị sai chính tả.
-- suggested: phiên bản đúng cuối cùng (đáp án trực tiếp, không từng bước).
-- start_pos: index bắt đầu (0-based) trong CONTENT.
-- end_pos: index kết thúc dạng exclusive.
-- language: "vi" hoặc "en".
-- reason: giải thích ngắn vì sao đây là lỗi trong ngữ cảnh.
-
-Bước này phải thực hiện TRƯỚC. Các bước sau KHÔNG được coi các typo này là undefined_terms.
-
----------------------------
 BƯỚC 2 – LUẬN ĐIỂM THIẾU CHỨNG CỨ (UNSUPPORTED CLAIMS)
+- Tìm các câu khẳng định mạnh (Tuyệt đối, Nhân quả, So sánh) nhưng thiếu cơ sở.
+- QUY TẮC ±2 CÂU: Nếu luận điểm KHÔNG CÓ số liệu, trích dẫn, hoặc ví dụ cụ thể nằm trong chính câu đó hoặc 2 câu liền kề -> BẮT BUỘC dán nhãn là "unsupported".
+- Đừng nhầm với lỗi Nhảy logic. Ở đây chỉ xét việc "Nói mà không có sách, mách không có chứng".
 
-<<<<<<< HEAD
-Sau khi xử lý chính tả, bạn tìm các câu khẳng định thiếu chứng cứ.
-LƯU Ý QUAN TRỌNG VỀ RANH GIỚI:
-- Nếu một câu chứa lập luận nhảy cóc quá xa, phi logic (ví dụ: "A dẫn đến B" nhưng không liên quan), hãy BỎ QUA ở bước này và để dành cho BƯỚC 5 (Nhảy logic).
-- Nếu một câu có ý nghĩa mâu thuẫn trực tiếp với một câu khác, hãy ưu tiên xếp vào BƯỚC 4 (Mâu thuẫn).
-=======
-Sau khi xử lý chính tả, bạn tìm:
-- Các câu/mệnh đề khẳng định điều gì đó (sự thật, xu hướng, hiệu quả, dự đoán, so sánh, quan hệ nhân quả)
-  mà KHÔNG có dữ liệu, ví dụ, trích dẫn hoặc lập luận đủ mạnh.
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
-
-Một luận điểm chỉ được xem là CÓ CHỨNG CỨ nếu:
-- Có bằng chứng trong cùng câu, HOẶC
-- Trong khoảng ±2 câu lân cận, HOẶC
-- Trong cùng đoạn với liên kết rõ ràng.
-
-Mỗi item:
-- claim: câu hoặc mệnh đề chứa luận điểm.
-- location: ví dụ "Đoạn 2, Câu 3".
-- status: "unsupported" | "weak" | "partially_supported".
-- claim_type: "absolute" | "comparative" | "causal" | "predictive" | ...
-- reason: giải thích ngắn vì sao thiếu chứng cứ.
-- surrounding_context: trích đoạn ngắn xung quanh.
-- suggestion: gợi ý ngắn (ví dụ: "Bổ sung số liệu hoặc dẫn chứng nghiên cứu").
-
----------------------------
 BƯỚC 3 – THUẬT NGỮ CHƯA ĐỊNH NGHĨA (UNDEFINED TERMS)
+- Tìm các từ chuyên ngành, metric lạ, từ viết tắt xuất hiện lần đầu mà KHÔNG có cụm từ giải thích đi kèm (như "là...", "được hiểu là...").
+- KHÔNG dán nhãn các lỗi chính tả ở Bước 1 vào đây.
 
-Tiếp theo, bạn tìm:
-- Thuật ngữ kỹ thuật, tên mô hình, tên hệ thống, metric lạ, từ viết tắt quan trọng
-  nhưng không được giải thích rõ ở lần xuất hiện đầu.
-
-Lưu ý:
-- KHÔNG coi các lỗi chính tả đã thuộc spelling_errors là thuật ngữ.
-- KHÔNG đánh dấu các từ tiếng Anh phổ thông (system, model, accuracy, data, ...) là undefined_terms
-  nếu dùng tự nhiên trong câu tiếng Việt.
-
-Mỗi item:
-- term: đúng chuỗi xuất hiện trong CONTENT.
-- first_appeared: ví dụ "Đoạn 3, Câu 1".
-- context_snippet: trích đoạn ngắn quanh lần xuất hiện đầu.
-- is_defined: true/false (có được giải thích gần đó hay không).
-- reason: vì sao xem là chưa định nghĩa / khó hiểu.
-- suggestion: khuyến nghị ngắn (ví dụ: "Thêm 1 câu định nghĩa ngắn cho thuật ngữ này").
-
----------------------------
 BƯỚC 4 – MÂU THUẪN LOGIC (CONTRADICTIONS)
+- Cảnh giác cao độ với các câu "đá" nhau chan chát.
+- Ví dụ: Cùng một đối tượng nhưng Câu A nói "tác động tiêu cực", Câu B lại nói "không gây ô nhiễm". Phải bắt ngay cặp câu này!
 
-Sau đó, bạn tìm các cặp câu không thể cùng đúng.
-
-Ví dụ:
-- Cùng nói về một chương trình thử nghiệm:
-  - Câu A: "thử nghiệm thất bại hoàn toàn".
-  - Câu B: "thử nghiệm là một thành công vang dội".
-
-Mỗi item:
-- sentence1, sentence2: nguyên văn hai câu mâu thuẫn.
-- sentence1_location, sentence2_location: ví dụ "Đoạn 1, Câu 2".
-- contradiction_type: "factual" | "numerical" | "temporal" | "logical".
-- severity: "high" | "medium" | "low".
-- explanation: 1–2 câu giải thích xung đột.
-- suggestion: gợi ý ngắn để làm rõ hoặc thống nhất quan điểm.
-
----------------------------
 BƯỚC 5 – NHẢY LOGIC (LOGICAL JUMPS)
-
-<<<<<<< HEAD
-Cuối cùng, xem xét mạch nối giữa các CÂU hoặc các ĐOẠN.
-
-Nhảy logic xảy ra khi:
-- Lập luận có "bước nhảy cóc" phi lý (VD: nguyên nhân và kết quả không liên quan trực tiếp).
-- Chủ đề hoặc lập luận đổi hướng đột ngột giữa các câu hoặc đoạn liền kề mà không có giải thích.
-
-Mỗi item:
-- from_location: Vị trí nguồn (VD: "Câu 3" hoặc "Đoạn 1").
-- to_location: Vị trí đích bị nhảy logic (VD: "Câu 4" hoặc "Đoạn 2").
-- from_paragraph_summary: Tóm tắt 1-2 câu ý nguồn.
-- to_paragraph_summary: Tóm tắt 1-2 câu ý đích.
-- coherence_score: số thực 0–1 (1 = rất mạch lạc, 0 = hầu như không liên quan).
-- flag: nhãn ngắn, ví dụ "abrupt_topic_shift", "missing_explanation", "illogical_cause_effect".
-=======
-Cuối cùng, xem xét mạch nối giữa các đoạn.
-
-Nhảy logic xảy ra khi:
-- Chủ đề hoặc lập luận đổi hướng đột ngột,
-- Thiếu câu nối hoặc giải thích tại sao chuyển ý.
-
-Mỗi item:
-- from_paragraph: số đoạn nguồn (bắt đầu từ 1).
-- to_paragraph: số đoạn đích (bắt đầu từ 1).
-- from_paragraph_summary: tóm tắt ngắn 1–2 câu nội dung đoạn nguồn.
-- to_paragraph_summary: tóm tắt ngắn 1–2 câu nội dung đoạn đích.
-- coherence_score: số thực 0–1 (1 = rất mạch lạc, 0 = hầu như không liên quan).
-- flag: nhãn ngắn, ví dụ "abrupt_topic_shift", "missing_explanation".
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
-- severity: "high" | "medium" | "low".
-- explanation: vì sao xem đây là nhảy logic.
-- suggestion: gợi ý ngắn để thêm câu chuyển ý hoặc cấu trúc lại.
-
-Chỉ đưa vào các item có coherence_score < 0.7.
-
----------------------------
-ĐỊNH DẠNG JSON ĐẦU RA (A2, CHUẨN)
-
-Bạn PHẢI trả về JSON với cấu trúc:
-
-{{
-  "analysis_metadata": {{
-    "analyzed_at": "Timestamp ISO",
-    "writing_type": "{writing_type}",
-    "total_paragraphs": <số nguyên>,
-    "total_sentences": <số nguyên>
-  }},
-
-  "contradictions": {{
-    "total_found": <số nguyên>,
-    "items": [ ... ]
-  }},
-
-  "undefined_terms": {{
-    "total_found": <số nguyên>,
-    "items": [ ... ]
-  }},
-
-  "unsupported_claims": {{
-    "total_found": <số nguyên>,
-    "items": [ ... ]
-  }},
-
-  "logical_jumps": {{
-    "total_found": <số nguyên>,
-<<<<<<< HEAD
-    "items": [
-      {{
-        "from_location": "Câu X / Đoạn Y",
-        "to_location": "Câu Z / Đoạn W",
-        "from_paragraph_summary": "Tóm tắt ý nguồn...",
-        "to_paragraph_summary": "Tóm tắt ý đích...",
-        "coherence_score": 0.32,
-        "flag": "abrupt_topic_shift",
-        "severity": "high|medium|low",
-        "explanation": "Vì sao đây là nhảy logic.",
-        "suggestion": "Gợi ý sửa."
-      }}
-    ]
-=======
-    "items": [ ... ]
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
-  }},
-
-  "spelling_errors": {{
-    "total_found": <số nguyên>,
-    "items": [ ... ]
-  }},
-
-  "summary": {{
-    "total_issues": <tổng số vấn đề>,
-    "critical_issues": <số vấn đề mức high>,
-    "document_quality_score": <0-100>,
-    "key_recommendations": [
-      "Khuyến nghị quan trọng 1",
-      "Khuyến nghị quan trọng 2",
-      "Khuyến nghị quan trọng 3"
-    ]
-  }}
-}}
-
-Trong đó:
-- total_issues ≈ tổng số mục trong:
-  contradictions.items
-  + undefined_terms.items
-  + unsupported_claims.items
-  + logical_jumps.items
-  + spelling_errors.items
-
-Trả về DUY NHẤT object JSON này.
-KHÔNG dùng markdown, KHÔNG giải thích ngoài JSON.
+- Bắt các lỗi Non-sequitur (Không liên quan / Chuyện nọ xọ chuyện kia).
+- Nếu vế A (nguyên nhân) và vế B (kết quả) mâu thuẫn hoặc không có liên hệ thực tế (VD: "Trời nắng -> Che mưa", "Không gọi món -> Mang nước ra"), thì đó CHÍNH XÁC là Nhảy logic.
+- Gắn cờ "illogical_cause_effect" hoặc "abrupt_topic_shift" ngay lập tức dù là trong cùng một câu hay giữa các câu. Bỏ qua ngưỡng coherence_score, hễ thấy vô lý là bắt!
 """
     return prompt
-

@@ -12,7 +12,28 @@ Mục tiêu:
 - ƯU TIÊN: Spell & Term Normalization (Surface Quality) chạy trước,
   sau đó mới phân tích các vấn đề logic / khái niệm.
 """
+import sys
 
+def check_heavy_libraries():
+    # Danh sách các thư viện bạn muốn loại bỏ hoàn toàn
+    forbidden_libs = ['torch', 'transformers', 'sentence_transformers', 'numpy']
+    
+    found_libs = []
+    for lib in forbidden_libs:
+        if lib in sys.modules:
+            found_libs.append(lib)
+    
+    if found_libs:
+        print(f"❌ CẢNH BÁO: Thư viện nặng vẫn đang bị load: {found_libs}")
+        return False
+    else:
+        print("✅ TUYỆT VỜI: Không có thư viện nặng nào được load trong RAM.")
+        return True
+
+# Chạy test này sau khi bạn đã thực hiện các lệnh import chính của project
+# Ví dụ:
+# from app.ai.models.Analysis import analyze_document
+# check_heavy_libraries()
 from typing import Dict, Any, List, Optional
 import json
 import os
@@ -315,15 +336,19 @@ def analyze_document(
         # EN: dùng response_schema đầy đủ (ổn định, ít biến thể).
         # VI: bỏ response_schema để Gemini tự do trả thêm spelling_errors,
         #     vì tiếng Việt + mix EN-VI nhiều, schema cứng quá thì model hay skip block này.
-        if language == "vi":
-            generation_config = GenerationConfig(
-                response_mime_type="application/json",
-            )
-        else:
-            generation_config = GenerationConfig(
-                response_mime_type="application/json",
-                response_schema=RESPONSE_SCHEMA,
-            )
+# -------- 3) Gọi Gemini với cấu hình phù hợp --------
+        # BẮT BUỘC dùng response_schema cho cả Tiếng Anh và Tiếng Việt 
+        # để ép AI không được phép lười biếng và lướt qua các subtasks.
+        
+        generation_config = GenerationConfig(
+            response_mime_type="application/json",
+            response_schema=RESPONSE_SCHEMA,
+        )
+
+        model = genai.GenerativeModel(
+            selected_model,
+            generation_config=generation_config,
+        )
 
         model = genai.GenerativeModel(
             selected_model,
@@ -425,34 +450,34 @@ def analyze_document(
         # -------- 4.5) BỘ LỌC RANH GIỚI: Unsupported Claims vs Contradictions
         # Loại bỏ Unsupported Claim nếu nó đã nằm trong Contradictions
         # ======================================================================
-        if result["unsupported_claims"]["items"] and result["contradictions"]["items"]:
-            valid_claims = []
+        # if result["unsupported_claims"]["items"] and result["contradictions"]["items"]:
+        #     valid_claims = []
             
-            # Lấy tất cả các câu đã bị đánh lỗi mâu thuẫn
-            contra_texts = []
-            for c in result["contradictions"]["items"]:
-                contra_texts.append(c.get("sentence1", "").strip())
-                contra_texts.append(c.get("sentence2", "").strip())
+        #     # Lấy tất cả các câu đã bị đánh lỗi mâu thuẫn
+        #     contra_texts = []
+        #     for c in result["contradictions"]["items"]:
+        #         contra_texts.append(c.get("sentence1", "").strip())
+        #         contra_texts.append(c.get("sentence2", "").strip())
                 
-            for claim_item in result["unsupported_claims"]["items"]:
-                claim_text = claim_item.get("claim", "").strip()
+        #     for claim_item in result["unsupported_claims"]["items"]:
+        #         claim_text = claim_item.get("claim", "").strip()
                 
-                # Kiểm tra xem claim này có phải là một phần của câu mâu thuẫn không
-                is_overlap = False
-                for c_text in contra_texts:
-                    # Nếu luận điểm nằm trong câu mâu thuẫn, hoặc câu mâu thuẫn nằm trong luận điểm
-                    if claim_text and c_text and (claim_text in c_text or c_text in claim_text):
-                        is_overlap = True
-                        break
+        #         # Kiểm tra xem claim này có phải là một phần của câu mâu thuẫn không
+        #         is_overlap = False
+        #         for c_text in contra_texts:
+        #             # Nếu luận điểm nằm trong câu mâu thuẫn, hoặc câu mâu thuẫn nằm trong luận điểm
+        #             if claim_text and c_text and (claim_text in c_text or c_text in claim_text):
+        #                 is_overlap = True
+        #                 break
                 
-                # Chỉ giữ lại những claim KHÔNG bị trùng lặp với mâu thuẫn
-                if not is_overlap:
-                    valid_claims.append(claim_item)
+        #         # Chỉ giữ lại những claim KHÔNG bị trùng lặp với mâu thuẫn
+        #         if not is_overlap:
+        #             valid_claims.append(claim_item)
             
-            # Cập nhật lại danh sách Unsupported Claims
-            result["unsupported_claims"]["items"] = valid_claims
-            result["unsupported_claims"]["total_found"] = len(valid_claims)
-        # ======================================================================
+        #     # Cập nhật lại danh sách Unsupported Claims
+        #     result["unsupported_claims"]["items"] = valid_claims
+        #     result["unsupported_claims"]["total_found"] = len(valid_claims)
+        # # ======================================================================
 
         # -------- 5) MERGE lỗi chính tả rule-based vào spelling_errors chính --------
         try:

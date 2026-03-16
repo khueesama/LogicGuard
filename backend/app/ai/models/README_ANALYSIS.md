@@ -7,11 +7,7 @@ Module này gộp **4 subtasks phân tích văn bản** vào một lần gọi A
 1. **SUBTASK 1: Contradictions** - Phát hiện mâu thuẫn logic
 2. **SUBTASK 2: Undefined Terms** - Phát hiện thuật ngữ chưa định nghĩa
 3. **SUBTASK 3: Unsupported Claims** - Phát hiện luận điểm thiếu chứng cứ
-<<<<<<< HEAD
 4. **SUBTASK 4: Logical Jumps** (NEW) - Phát hiện nhảy logic giữa các câu hoặc các đoạn
-=======
-4. **SUBTASK 4: Logical Jumps** (NEW) - Phát hiện nhảy logic giữa các đoạn
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 
 ## 🎯 Mục Tiêu
 
@@ -23,11 +19,7 @@ Module này gộp **4 subtasks phân tích văn bản** vào một lần gọi A
 
 ### Files
 
-<<<<<<< HEAD
 ```text
-=======
-```
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 backend/app/ai/models/
 ├── promptStore.py                    # Chứa prompt_comprehensive_analysis()
 ├── comprehensiveAnalysis.py          # Implementation
@@ -141,17 +133,10 @@ Main analysis function sử dụng Gemini API.
         "total_found": 2,
         "items": [
             {
-<<<<<<< HEAD
                 "from_location": "Paragraph 5",
                 "to_location": "Paragraph 6",
                 "from_summary": "Machine learning in education",
                 "to_summary": "Climate change policy",
-=======
-                "from_paragraph": 5,
-                "to_paragraph": 6,
-                "from_topic": "Machine learning in education",
-                "to_topic": "Climate change policy",
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
                 "coherence_score": 0.1,
                 "missing_link": "No connection established",
                 "severity": "critical"
@@ -198,11 +183,7 @@ Tạo human-readable text summary từ JSON result.
 **Output**: Formatted string summary
 
 **Example**:
-<<<<<<< HEAD
 ```text
-=======
-```
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 ================================================================================
 DOCUMENT ANALYSIS SUMMARY
 ================================================================================
@@ -228,11 +209,7 @@ Critical Issues: 4
   - AI improves test scores by 300%...
 
 🔀 LOGICAL JUMPS: 2 found
-<<<<<<< HEAD
   - Paragraph 5 → Paragraph 6 (coherence: 0.1/10)
-=======
-  - Paragraph 5 → 6 (coherence: 0.1/10)
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 
 💡 KEY RECOMMENDATIONS:
   1. Resolve contradictions about AI impact
@@ -314,13 +291,8 @@ for claim in result["unsupported_claims"]["items"]:
 for jump in result["logical_jumps"]["items"]:
     if jump["coherence_score"] < 0.3:
         print(f"🔀 Critical jump detected:")
-<<<<<<< HEAD
         print(f"   From {jump['from_location']}: {jump['from_summary']}")
         print(f"   To {jump['to_location']}: {jump['to_summary']}")
-=======
-        print(f"   From P{jump['from_paragraph']}: {jump['from_topic']}")
-        print(f"   To P{jump['to_paragraph']}: {jump['to_topic']}")
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
         print(f"   Coherence: {jump['coherence_score']}/10")
 ```
 
@@ -424,11 +396,7 @@ total_issues = result["summary"]["total_issues"]
 - Logical inconsistencies
 
 **Example**:
-<<<<<<< HEAD
 ```text
-=======
-```
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 "AI will revolutionize education" ↔ "AI should be banned from schools"
 Type: direct
 Severity: high
@@ -451,11 +419,7 @@ Severity: high
 - Technical papers need more definitions
 
 **Example**:
-<<<<<<< HEAD
 ```text
-=======
-```
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 Term: "Neural networks"
 Context: "Neural networks use backpropagation..."
 Defined: false
@@ -476,11 +440,7 @@ Reason: "Technical term without definition for general audience"
 **Proximity Rule**: Check ±2 sentences for supporting evidence
 
 **Example**:
-<<<<<<< HEAD
 ```text
-=======
-```
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 Claim: "AI improves test scores by 300%"
 Proximity: "No evidence within ±2 sentences"
 Evidence type: none
@@ -493,14 +453,9 @@ Suggestion: "Add citation with source data"
 ### SUBTASK 4: Logical Jumps (NEW)
 
 **What it detects**:
-<<<<<<< HEAD
 - Abrupt topic changes between sentences or paragraphs
 - Missing transitional connections
 - Logical gaps in reasoning (A doesn't logically lead to B)
-=======
-- Abrupt topic changes between paragraphs
-- Missing transitional connections
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 - Incoherent document flow
 - Non-sequitur conclusions
 
@@ -510,11 +465,7 @@ Suggestion: "Add citation with source data"
 - > 0.6: Good transition
 
 **Example**:
-<<<<<<< HEAD
 ```text
-=======
-```
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 From P5: "Machine learning in education"
 To P6: "Climate change policy reform"
 Coherence: 0.1/10
@@ -541,11 +492,7 @@ Summary section generates smart recommendations by analyzing patterns across all
 
 `document_quality_score` (0-100):
 
-<<<<<<< HEAD
 ```text
-=======
-```
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 Base score: 100
 Deductions:
 - Each critical issue: -15 points
@@ -793,12 +740,6 @@ For issues or questions:
 ---
 
 **Created**: 2024-11-18  
-<<<<<<< HEAD
 **Version**: 1.0.1 (Updated Logical Jumps Schema)  
 **Status**: ✅ Production Ready  
 **Test Coverage**: 5/5 tests passing (100%)
-=======
-**Version**: 1.0.0  
-**Status**: ✅ Production Ready  
-**Test Coverage**: 5/5 tests passing (100%)
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da

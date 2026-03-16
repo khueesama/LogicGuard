@@ -7,11 +7,7 @@
 1. **Mâu thuẫn logic (Contradictions)** - Phát hiện các mâu thuẫn logic giữa các phát biểu
 2. **Thuật ngữ chưa định nghĩa (Undefined Terms)** - Xác định thuật ngữ không có định nghĩa rõ ràng
 3. **Luận điểm thiếu chứng cứ (Unsupported Claims)** - Tìm các khẳng định thiếu bằng chứng
-<<<<<<< HEAD
 4. **Nhảy logic (Logical Jumps)** - Phát hiện chuyển đề đột ngột với độ liên kết thấp giữa các câu hoặc các đoạn
-=======
-4. **Nhảy logic (Logical Jumps)** - Phát hiện chuyển đề đột ngột với độ liên kết thấp
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 
 ## 🎯 Mục Đích
 
@@ -249,30 +245,18 @@ prompt = prompt_analysis_vi(context, content)
 ### NHIỆM VỤ PHỤ 4: Nhảy Logic
 
 **Phát hiện**:
-<<<<<<< HEAD
 - Chuyển đề đột ngột giữa các câu hoặc các đoạn
 - Lập luận có "bước nhảy cóc" phi lý (nguyên nhân không dẫn đến kết quả)
-=======
-- Chuyển đề đột ngột
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 - Thiếu câu chuyển tiếp
 - Luồng ý không mạch lạc
 
 **Ví dụ**:
 ```
-<<<<<<< HEAD
 ❌ Câu 1: "Về machine learning..."
    Câu 2: "Nông nghiệp hữu cơ..."  (coherence: 0.1)
 
 ✅ Câu 1: "Về machine learning..."
    Câu 2: "ML cũng được ứng dụng trong nông nghiệp..."  (coherence: 0.7)
-=======
-❌ Đoạn 1: "Về machine learning..."
-   Đoạn 2: "Nông nghiệp hữu cơ..."  (coherence: 0.1)
-
-✅ Đoạn 1: "Về machine learning..."
-   Đoạn 2: "ML cũng được ứng dụng trong nông nghiệp..."  (coherence: 0.7)
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 ```
 
 ## 📋 JSON Output Format
@@ -301,7 +285,6 @@ Phiên bản tiếng Việt vẫn sử dụng **cùng cấu trúc JSON** như ti
     },
     "logical_jumps": {
         "total_found": 1,
-<<<<<<< HEAD
         "items": [
             {
                 "from_location": "Câu 3 / Đoạn 1",
@@ -315,9 +298,6 @@ Phiên bản tiếng Việt vẫn sử dụng **cùng cấu trúc JSON** như ti
                 "suggestion": "Thêm câu chuyển ý"
             }
         ]
-=======
-        "items": [...]
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
     },
     "summary": {
         "total_issues": 11,
@@ -423,11 +403,7 @@ combined_result = merge_results(results)
 
 ### Vấn Đề 1: Ký Tự Bị Lỗi
 
-<<<<<<< HEAD
 **Triệu chứng**: Dấu tiếng Việt hiển thị sai (, ?, v.v.)
-=======
-**Triệu chứng**: Dấu tiếng Việt hiển thị sai (�, ?, v.v.)
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 
 **Giải pháp**:
 ```python
@@ -488,11 +464,7 @@ except json.JSONDecodeError as e:
 
 ### Files Liên Quan
 
-<<<<<<< HEAD
 ```text
-=======
-```
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
 backend/app/ai/models/
 ├── promptStore.py              # Chứa prompt_analysis_vi()
 └── README_VIETNAMESE.md        # Documentation này
@@ -541,14 +513,7 @@ backend/
 
 **Tạo bởi**: LogicGuard Team  
 **Ngày tạo**: 18/11/2024  
-<<<<<<< HEAD
 **Phiên bản**: 1.0.0 (Cập nhật Schema Nhảy Logic)  
 **Trạng thái**: ✅ Sẵn sàng sử dụng  
 **Test Coverage**: 4/4 tests passing (100%)  
 **Language**: 🇻🇳 Tiếng Việt
-=======
-**Phiên bản**: 1.0.0  
-**Trạng thái**: ✅ Sẵn sàng sử dụng  
-**Test Coverage**: 4/4 tests passing (100%)  
-**Language**: 🇻🇳 Tiếng Việt
->>>>>>> 7c6800b6f867dd1bf82fd37d6c204a13737fa5da
