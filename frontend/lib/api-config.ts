@@ -11,25 +11,20 @@
  * 3. Fallback to localhost
  */
 export function getApiBaseUrl(): string {
-  // 1. Check environment variable first
+  // 1. ƯU TIÊN SỐ 1: Biến môi trường (Dành cho Vercel/Production)
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL
   }
 
-  // 2. Auto-detect in browser
+  // 2. Dự phòng cho Local Development
   if (typeof window !== "undefined") {
-    const { protocol, hostname } = window.location
-    
-    // If running on localhost/127.0.0.1, use localhost
+    const { hostname } = window.location
     if (hostname === "localhost" || hostname === "127.0.0.1") {
       return "http://localhost:8000/api"
     }
-    
-    // If running on a specific IP/domain, use same host with port 8000
-    return `${protocol}//${hostname}:8000/api`
   }
 
-  // 3. Fallback for server-side rendering
+  // 3. Mặc định cuối cùng
   return "http://localhost:8000/api"
 }
 
