@@ -1,5 +1,5 @@
 from contextlib import asynccontextmanager
-
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -61,7 +61,8 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
-
+#SỬA LỖI HTTP CỦA RAILWAY:
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 # CORS with dynamic origins
 app.add_middleware(
     CORSMiddleware,
